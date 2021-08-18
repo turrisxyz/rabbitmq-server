@@ -146,6 +146,14 @@ erlang_app(
     )
 
     github_erlang_app(
+        name = "khepri",
+        org = "rabbitmq",
+        ref = "601931503d93d5c59c55475f62cabeaee6bfe9b8",
+        version = "601931503d93d5c59c55475f62cabeaee6bfe9b8",
+        build_file = rabbitmq_workspace + "//:BUILD.khepri",
+    )
+
+    github_erlang_app(
         name = "meck",
         org = "eproxus",
     )
