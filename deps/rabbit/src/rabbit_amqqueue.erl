@@ -512,7 +512,7 @@ update_decorators_in_khepri(Name) ->
               case khepri_tx:get(Path) of
                   {ok, #{Path := #{data := Q}}} ->
                       Q1 = amqqueue:reset_mirroring_and_decorators(Q),
-                      store_queue_ram_in_khepri(Q),
+                      store_queue_ram_in_khepri(Q1),
                       ok;
                   _  ->
                       ok
@@ -2002,7 +2002,7 @@ internal_delete1_in_mnesia(QueueName, OnlyDurable, Reason) ->
     %% after the transaction.
     rabbit_binding:remove_for_destination(QueueName, OnlyDurable).
 
-internal_delete1_in_khepri(QueueName, OnlyDurable, Reason) ->
+internal_delete1_in_khepri(QueueName, OnlyDurable, _Reason) ->
     Path = mnesia_table_to_khepri_path(rabbit_queue, QueueName),
     DurablePath = mnesia_table_to_khepri_path(rabbit_durable_queue, QueueName),
     {ok, _} = khepri_tx:delete(Path),
@@ -2063,6 +2063,8 @@ internal_delete_in_khepri(QueueName, ActingUser, Reason) ->
                                                            ?INTERNAL_USER),
                       fun() ->
                               ok = T(),
+                              %% TODO core metrics ops are ETS ops. They can't happen
+                              %% inside of a transaction
                               rabbit_core_metrics:queue_deleted(QueueName),
                               %% TODO we can't do this notification inside a transaction
                               ok = rabbit_event:notify(queue_deleted,
