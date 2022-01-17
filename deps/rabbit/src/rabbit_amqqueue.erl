@@ -357,7 +357,7 @@ store_queue_without_recover_in_mnesia(Q) ->
       fun () ->
               case mnesia:wread({rabbit_queue, QueueName}) of
                   [] ->
-                      case not_found_or_absent(QueueName) of
+                      case not_found_or_absent_in_mnesia(QueueName) of
                           not_found           -> Q1 = rabbit_policy:set(Q),
                                                  Q2 = amqqueue:set_state(Q1, live),
                                                  ok = store_queue(Q2),
@@ -575,12 +575,12 @@ lookup_in_khepri(Table, [Name]) ->
     rabbit_khepri:transaction(
       fun() ->
               lookup_as_list_in_khepri(Table, Name)
-      end);
+      end, ro);
 lookup_in_khepri(Table, Names) when is_list(Names) ->
     rabbit_khepri:transaction(
       fun() ->
               lists:append([lookup_as_list_in_khepri(Table, Name) || Name <- Names])
-      end);
+      end, ro);
 lookup_in_khepri(Table, Name) ->
     Path = mnesia_table_to_khepri_path(Table, Name),
     case rabbit_khepri:get(Path) of
@@ -606,6 +606,11 @@ lookup_many(Names) when is_list(Names) ->
 -spec not_found_or_absent(name()) -> not_found_or_absent().
 
 not_found_or_absent(Name) ->
+    rabbit_khepri:try_mnesia_or_khepri(
+      fun() -> not_found_or_absent_in_mnesia(Name) end,
+      fun() -> not_found_or_absent_in_khepri(Name) end).
+
+not_found_or_absent_in_mnesia(Name) ->
     %% NB: we assume that the caller has already performed a lookup on
     %% rabbit_queue and not found anything
     case mnesia:read({rabbit_durable_queue, Name}) of
@@ -627,6 +632,11 @@ not_found_or_absent_in_khepri(Name) ->
 -spec not_found_or_absent_dirty(name()) -> not_found_or_absent().
 
 not_found_or_absent_dirty(Name) ->
+    rabbit_khepri:try_mnesia_or_khepri(
+      fun() -> not_found_or_absent_dirty_in_mnesia(Name) end,
+      fun() -> rabbit_khepri:transaction(fun() -> not_found_or_absent_in_khepri(Name) end, ro) end).
+
+not_found_or_absent_dirty_in_mnesia(Name) ->
     %% We should read from both tables inside a tx, to get a
     %% consistent view. But the chances of an inconsistency are small,
     %% and only affect the error kind.
