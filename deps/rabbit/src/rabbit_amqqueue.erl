@@ -331,11 +331,10 @@ store_queue_in_mnesia(Q) ->
       end).
 
 store_queue_in_khepri_tx(Q) ->
-    Q1 = rabbit_queue_decorator:set(Q),
     rabbit_khepri:transaction(
       fun() ->
               store_queue_in_khepri(Q),
-              store_queue_ram_in_khepri(Q1)
+              store_queue_ram_in_khepri(Q)
       end).
 
 store_queue_in_khepri(Q) when ?amqqueue_is_durable(Q) ->
@@ -349,8 +348,9 @@ store_queue_in_khepri(Q) when not ?amqqueue_is_durable(Q) ->
     ok.
 
 store_queue_ram_in_khepri(Q) ->
-    Path = khepri_queue_path(amqqueue:get_name(Q)),
-    case khepri_tx:put(Path, #kpayload_data{data = Q}) of
+    Q1 = rabbit_queue_decorator:set(Q),
+    Path = khepri_queue_path(amqqueue:get_name(Q1)),
+    case khepri_tx:put(Path, #kpayload_data{data = Q1}) of
         {ok, _} -> ok;
         Error   -> khepri_tx:abort(Error)
     end.
@@ -2016,7 +2016,7 @@ internal_delete1_in_mnesia(QueueName, OnlyDurable, Reason) ->
     %% after the transaction.
     rabbit_binding:remove_for_destination(QueueName, OnlyDurable).
 
-internal_delete1_in_khepri(QueueName, OnlyDurable, _Reason) ->
+internal_delete1_in_khepri(QueueName, _OnlyDurable, _Reason) ->
     Path = mnesia_table_to_khepri_path(rabbit_queue, QueueName),
     DurablePath = mnesia_table_to_khepri_path(rabbit_durable_queue, QueueName),
     {ok, _} = khepri_tx:delete(Path),
