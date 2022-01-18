@@ -72,6 +72,10 @@
          set_ram_duration_target/2, set_maximum_since_use/2,
          emit_consumers_local/3, internal_delete/3]).
 
+%% For use by classic queue mirroring modules
+-export([lookup_as_list_in_khepri/2]).
+-export([store_queue_in_khepri/1, store_queue_ram_in_khepri/1]).
+
 -include_lib("khepri/include/khepri.hrl").
 -include_lib("rabbit_common/include/rabbit.hrl").
 -include_lib("stdlib/include/qlc.hrl").
@@ -2016,12 +2020,13 @@ internal_delete1_in_khepri(QueueName, OnlyDurable, _Reason) ->
     Path = mnesia_table_to_khepri_path(rabbit_queue, QueueName),
     DurablePath = mnesia_table_to_khepri_path(rabbit_durable_queue, QueueName),
     {ok, _} = khepri_tx:delete(Path),
-    %% TODO do we really have to check it if exists before deleting it?
-    _ = khepri_tx:delete(DurablePath),
+    {ok, _} = khepri_tx:delete(DurablePath),
     %% we want to execute some things, as decided by rabbit_exchange,
     %% after the transaction.
     %% TODO bindings needs to be updated to khepri
-    rabbit_binding:remove_for_destination(QueueName, OnlyDurable).
+    %%% Commented out so I can test a bit the rest! Otherwise any test setup will fail...
+    %% rabbit_binding:remove_for_destination(QueueName, OnlyDurable).
+    ok.
 
 -spec internal_delete(name(), rabbit_types:username()) -> 'ok'.
 
@@ -2059,30 +2064,32 @@ internal_delete_in_mnesia(QueueName, ActingUser, Reason) ->
       end).
 
 internal_delete_in_khepri(QueueName, ActingUser, Reason) ->
-    rabbit_khepri:transaction(
-      fun () ->
-              case {lookup_as_list_in_khepri(rabbit_queue, QueueName),
-                    lookup_as_list_in_khepri(rabbit_durable_queue, QueueName)} of
-                  {[], []} ->
-                      rabbit_misc:const(ok);
-                  _ ->
-                      Deletions = internal_delete1(QueueName, false, Reason),
-                      %% TODO this is a bunch of notifications, and maybe something else?
-                      %% It can't happen inside of the transaction :scream:
-                      T = rabbit_binding:process_deletions(Deletions,
-                                                           ?INTERNAL_USER),
-                      fun() ->
-                              ok = T(),
-                              %% TODO core metrics ops are ETS ops. They can't happen
-                              %% inside of a transaction
-                              rabbit_core_metrics:queue_deleted(QueueName),
-                              %% TODO we can't do this notification inside a transaction
-                              ok = rabbit_event:notify(queue_deleted,
-                                                       [{name, QueueName},
-                                                        {user_who_performed_action, ActingUser}])
-                      end
-              end
-      end).
+    case rabbit_khepri:transaction(
+           fun () ->
+                   case {lookup_as_list_in_khepri(rabbit_queue, QueueName),
+                         lookup_as_list_in_khepri(rabbit_durable_queue, QueueName)} of
+                       {[], []} ->
+                           ok;
+                       _ ->
+                           internal_delete1_in_khepri(QueueName, false, Reason)
+                   end
+           end) of
+        ok ->
+            ok;
+        Deletions ->
+            %% TODO this is a bunch of notifications, and maybe something else?
+            %% It can't happen inside of the transaction :scream:
+            T = rabbit_binding:process_deletions(Deletions,
+                                                 ?INTERNAL_USER),
+            ok = T(),
+            %% TODO core metrics ops are ETS ops. They can't happen
+            %% inside of a transaction
+            rabbit_core_metrics:queue_deleted(QueueName),
+            %% TODO we can't do this notification inside a transaction
+            ok = rabbit_event:notify(queue_deleted,
+                                     [{name, QueueName},
+                                      {user_who_performed_action, ActingUser}])
+    end.
 
 -spec forget_all_durable(node()) -> 'ok'.
 
