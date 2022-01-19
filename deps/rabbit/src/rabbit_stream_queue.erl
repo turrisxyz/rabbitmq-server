@@ -690,8 +690,7 @@ set_retention_policy(Name, VHost, Policy) ->
                           Conf = amqqueue:get_type_state(Q),
                           amqqueue:set_type_state(Q, Conf#{max_age => MaxAge})
                   end,
-            case rabbit_misc:execute_mnesia_transaction(
-                   fun() -> rabbit_amqqueue:update(QName, Fun) end) of
+            case rabbit_amqqueue:update_in_tx(QName, Fun) of
                 not_found ->
                     {error, not_found};
                 _ ->
