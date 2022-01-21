@@ -1506,6 +1506,7 @@ list_in_mnesia(VHostPath, TableName) ->
                 read)
       end).
 
+%% TODO I think queue path should be [?MODULE, queues, Vhost, Name] instead of internal name
 list_in_khepri(VHostPath, TableName) ->
     Path = mnesia_table_to_khepri_path(TableName),
     Pattern = amqqueue:pattern_match_on_name(rabbit_misc:r(VHostPath, queue)),
