@@ -591,8 +591,8 @@ execute_mnesia_tx_with_tail(TxFun) ->
 
 execute_khepri_tx_with_tail(TxFun) ->
     case khepri_tx:is_transaction() of
-        true  -> execute_khepri_transaction(TxFun);
-        false -> TailFun = execute_khepri_transaction(TxFun),
+        true  -> rabbit_khepri:transaction(TxFun);
+        false -> TailFun = rabbit_khepri:transaction(TxFun),
                  TailFun()
     end.
 

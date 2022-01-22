@@ -18,7 +18,8 @@
          route/2, delete/3, validate_binding/2, count/0]).
 -export([list_names/0, is_amq_prefixed/1]).
 %% these must be run inside a mnesia tx
--export([maybe_auto_delete/2, serial/1, peek_serial/1, update/2]).
+-export([maybe_auto_delete/2, serial_in_mnesia/1, serial_in_khepri/1, peek_serial/1, update/2]).
+-export([peek_serial_in_mnesia/1, peek_serial_in_khepri/1]).
 
 %%----------------------------------------------------------------------------
 
@@ -100,12 +101,20 @@ serialise_events(X = #exchange{type = Type, decorators = Decorators}) ->
               rabbit_exchange_decorator:select(all, Decorators))
         orelse (type_to_module(Type)):serialise_events().
 
--spec serial(rabbit_types:exchange()) ->
-                       fun((boolean()) -> 'none' | pos_integer()).
-
-serial(#exchange{name = XName} = X) ->
+-spec serial_in_mnesia(rabbit_types:exchange()) ->
+          fun((boolean()) -> 'none' | pos_integer()).
+serial_in_mnesia(#exchange{name = XName} = X) ->
     Serial = case serialise_events(X) of
-                 true  -> next_serial(XName);
+                 true  -> next_serial_in_mnesia(XName);
+                 false -> none
+             end,
+    fun (true)  -> Serial;
+        (false) -> none
+    end.
+
+serial_in_khepri(#exchange{name = XName} = X) ->
+    Serial = case serialise_events(X) of
+                 true  -> next_serial_in_khepri(XName);
                  false -> none
              end,
     fun (true)  -> Serial;
@@ -448,19 +457,19 @@ update_scratch(Name, App, Fun) ->
       fun () ->
               rabbit_misc:execute_mnesia_transaction(
                 fun() ->
-                        update_in_mnesia(Name, update_scratch(Fun)),
+                        update_in_mnesia(Name, update_scratch(App, Fun)),
                         ok
                 end)
       end,
       fun() ->
               rabbit_khepri:transaction(
                 fun() ->
-                        update_in_khepri(Name, update_scratch(Fun)),
+                        update_in_khepri(Name, update_scratch(App, Fun)),
                         ok
                 end)
       end).
 
-update_scratch(Fun) ->
+update_scratch(App, Fun) ->
     fun(X = #exchange{scratches = Scratches0}) ->
             Scratches1 = case Scratches0 of
                              undefined -> orddict:new();
@@ -510,8 +519,8 @@ update(Name, Fun) ->
     %% TODO is this called from anywhere else? The double check of `rabbit_khepri:try...`
     %% will have issues when compiling the transaction
     rabbit_khepri:try_mnesia_or_khepri(
-      fun() -> update_in_mnesia(Name, Fun),
-      fun() -> update_in_khepri(Name, Fun)).
+      fun() -> update_in_mnesia(Name, Fun) end,
+      fun() -> update_in_khepri(Name, Fun) end).
 
 update_in_mnesia(Name, Fun) ->
     case mnesia:wread({rabbit_exchange, Name}) of
@@ -772,6 +781,9 @@ conditional_delete_in_khepri(X = #exchange{name = XName}, OnlyDurable) ->
 unconditional_delete_in_mnesia(X, OnlyDurable) ->
     internal_delete_in_mnesia(X, OnlyDurable, true).
 
+unconditional_delete_in_khepri(X, OnlyDurable) ->
+    internal_delete_in_khepri(X, OnlyDurable, true).
+
 internal_delete_in_mnesia(X = #exchange{name = XName}, OnlyDurable, RemoveBindingsForSource) ->
     ok = mnesia:delete({rabbit_exchange, XName}),
     ok = mnesia:delete({rabbit_exchange_serial, XName}),
@@ -795,20 +807,39 @@ internal_delete_in_khepri(X = #exchange{name = XName}, OnlyDurable, RemoveBindin
     {deleted, X, Bindings, rabbit_binding:remove_for_destination(
                              XName, OnlyDurable)}.
 
-next_serial(XName) ->
-    Serial = peek_serial(XName, write),
+next_serial_in_mnesia(XName) ->
+    Serial = peek_serial_in_mnesia(XName, write),
     ok = mnesia:write(rabbit_exchange_serial,
                       #exchange_serial{name = XName, next = Serial + 1}, write),
     Serial.
 
+next_serial_in_khepri(XName) ->
+    Serial = peek_serial_in_khepri(XName, write),
+    Path = khepri_exchange_serial_path(XName),
+    {ok, _} = khepri_tx:put(Path,
+                            #exchange_serial{name = XName, next = Serial + 1}, write),
+    Serial.
+
 -spec peek_serial(name()) -> pos_integer() | 'undefined'.
 
-peek_serial(XName) -> peek_serial(XName, read).
+peek_serial(XName) -> peek_serial_in_mnesia(XName).
 
-peek_serial(XName, LockType) ->
+peek_serial_in_mnesia(XName) -> peek_serial_in_mnesia(XName, read).
+peek_serial_in_khepri(XName) -> peek_serial_in_khepri(XName, read).
+
+peek_serial_in_mnesia(XName, LockType) ->
     case mnesia:read(rabbit_exchange_serial, XName, LockType) of
         [#exchange_serial{next = Serial}]  -> Serial;
         _                                  -> 1
+    end.
+
+peek_serial_in_khepri(XName, _LockType) ->
+    Path = khepri_exchange_serial_path(XName),
+    case khepri_tx:get(Path) of
+        {ok, #{Path := #{data := #exchange_serial{next = Serial}}}} ->
+            Serial;
+        _ ->
+            1
     end.
 
 invalid_module(T) ->
