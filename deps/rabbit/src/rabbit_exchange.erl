@@ -305,8 +305,8 @@ lookup_in_mnesia(Name) ->
 
 lookup_in_khepri(Name) ->
     Path = khepri_exchange_path(Name),
-    case khepri_tx:get(Path) of
-        {ok, #{Path := #{data := X}}} -> {ok, X};
+    case rabbit_khepri:get(Path) of
+        {ok, #{data := X}} -> {ok, X};
         _ -> {error, not_found}
     end.
 

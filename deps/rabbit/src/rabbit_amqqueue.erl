@@ -74,7 +74,7 @@
 
 %% For use by classic queue mirroring modules
 -export([lookup_as_list_in_khepri/2]).
--export([store_queue_in_khepri/1, store_queue_ram_in_khepri/1]).
+-export([store_queue_in_khepri/1, store_queue_ram_in_khepri/2]).
 
 -include_lib("khepri/include/khepri.hrl").
 -include_lib("rabbit_common/include/rabbit.hrl").
@@ -331,10 +331,11 @@ store_queue_in_mnesia(Q) ->
       end).
 
 store_queue_in_khepri_tx(Q) ->
+    Decorators = rabbit_queue_decorator:list(),
     rabbit_khepri:transaction(
       fun() ->
               store_queue_in_khepri(Q),
-              store_queue_ram_in_khepri(Q)
+              store_queue_ram_in_khepri(Q, Decorators)
       end).
 
 store_queue_in_khepri(Q) when ?amqqueue_is_durable(Q) ->
@@ -347,9 +348,9 @@ store_queue_in_khepri(Q) when ?amqqueue_is_durable(Q) ->
 store_queue_in_khepri(Q) when not ?amqqueue_is_durable(Q) ->
     ok.
 
-store_queue_ram_in_khepri(Q) ->
-    Q1 = rabbit_queue_decorator:set(Q),
-    Path = khepri_queue_path(amqqueue:get_name(Q1)),
+store_queue_ram_in_khepri(Q, Decorators) ->
+    Path = khepri_queue_path(amqqueue:get_name(Q)),
+    Q1 = rabbit_queue_decorator:set(Q, Decorators),
     case khepri_tx:put(Path, #kpayload_data{data = Q1}) of
         {ok, _} -> ok;
         Error   -> khepri_tx:abort(Error)
@@ -378,7 +379,7 @@ store_queue_without_recover_in_khepri(Q) ->
     Path = khepri_queue_path(QueueName),
     Q1 = rabbit_policy:set(Q),
     Q2 = amqqueue:set_state(Q1, live),
-    Q3 = rabbit_queue_decorator:set(Q),
+    Decorators = rabbit_queue_decorator:list(),
     rabbit_khepri:transaction(
       fun() ->
               case khepri_tx:get(Path) of
@@ -388,7 +389,7 @@ store_queue_without_recover_in_khepri(Q) ->
                       case not_found_or_absent_in_khepri(QueueName) of
                           not_found ->
                               store_queue_in_khepri(Q2),
-                              store_queue_ram_in_khepri(Q3),
+                              store_queue_ram_in_khepri(Q2, Decorators),
                               {created, Q2};
                           {absent, _, _} = R ->
                               khepri_tx:abort(R)
@@ -511,12 +512,15 @@ update_decorators_in_mnesia(Name) ->
 
 update_decorators_in_khepri(Name) ->
     Path = khepri_queue_path(Name),
+    %% Decorators are stored on an ETS table, we need to query them before the transaction
+    %% and pass the list to `rabbit_queue_decorator:set/2`
+    Decorators = rabbit_queue_decorator:list(),
     rabbit_khepri:transaction(
       fun() ->
               case khepri_tx:get(Path) of
                   {ok, #{Path := #{data := Q}}} ->
                       Q1 = amqqueue:reset_mirroring_and_decorators(Q),
-                      store_queue_ram_in_khepri(Q1),
+                      store_queue_ram_in_khepri(Q1, Decorators),
                       ok;
                   _  ->
                       ok
