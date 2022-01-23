@@ -200,11 +200,10 @@ find_local_durable_queues_in_mnesia(VHost) ->
       end).
 
 find_local_durable_queues_in_khepri(VHost) ->
-    Path = khepri_durable_queues_path() ++ [?STAR],
-    {ok, Map} = rabbit_khepri:match_and_get_data(Path),
+    Path = khepri_durable_queues_path(),
+    {ok, Map} = rabbit_khepri:match_and_get_data(Path ++ [VHost, ?STAR_STAR]),
     maps:fold(fun(_, Q, Acc) ->
-                      case amqqueue:get_vhost(Q) =:= VHost
-                          andalso rabbit_queue_type:is_recoverable(Q) of
+                      case rabbit_queue_type:is_recoverable(Q) of
                           true -> [Q | Acc];
                           _ -> Acc
                       end
@@ -1510,12 +1509,10 @@ list_in_mnesia(VHostPath, TableName) ->
                 read)
       end).
 
-%% TODO I think queue path should be [?MODULE, queues, Vhost, Name] instead of internal name
 list_in_khepri(VHostPath, TableName) ->
     Path = mnesia_table_to_khepri_path(TableName),
-    Pattern = amqqueue:pattern_match_on_name(rabbit_misc:r(VHostPath, queue)),
-    {ok, Map} = rabbit_khepri:match(Path ++ [#if_data_matches{pattern = Pattern}]),
-    maps:fold(fun(_, #{data := Q}, Acc) -> [Q | Acc] end, [], Map).
+    {ok, Map} = rabbit_khepri:match_and_get_data(Path ++ [VHostPath, ?STAR_STAR]),
+    maps:values(Map).
 
 list_with_possible_retry(Fun) ->
     %% amqqueue migration:
@@ -2383,16 +2380,14 @@ get_quorum_nodes(Q) ->
 
 khepri_queues_path() ->
     [?MODULE, queues].
-khepri_queue_path(QName) ->
-    {ok, Name} = rabbit_queue_type_util:qname_to_internal_name(QName),
-    [?MODULE, queues, Name].
+khepri_queue_path(#resource{virtual_host = VHost, name = Name}) ->
+    [?MODULE, queues, VHost, Name].
 
 khepri_durable_queues_path() ->
     [?MODULE, durable_queues].
 
-khepri_durable_queue_path(QName) ->
-    {ok, Name} = rabbit_queue_type_util:qname_to_internal_name(QName),
-    [?MODULE, durable_queues, Name].
+khepri_durable_queue_path(#resource{virtual_host = VHost, name = Name}) ->
+    [?MODULE, durable_queues, VHost, Name].
 
 mnesia_table_to_khepri_path(rabbit_durable_queue) ->
     khepri_durable_queues_path();
