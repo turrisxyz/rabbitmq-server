@@ -25,6 +25,7 @@
          mnesia_delete_durable_exchange_to_khepri/1, mnesia_delete_exchange_serial_to_khepri/1,
          clear_exchange_data_in_khepri/0, clear_durable_exchange_data_in_khepri/0,
          clear_exchange_serial_data_in_khepri/0]).
+-export([list_in_khepri_tx/1]).
 
 %%----------------------------------------------------------------------------
 
@@ -436,6 +437,11 @@ list_in_mnesia(VHostPath) ->
 list_in_khepri(VHostPath) ->
     Path = khepri_exchanges_path() ++ [VHostPath, ?STAR_STAR],
     {ok, Map} = rabbit_khepri:match_and_get_data(Path),
+    maps:fold(fun(_, X, Acc) -> [X | Acc] end, [], Map).
+
+list_in_khepri_tx(VHostPath) ->
+    Path = khepri_exchanges_path() ++ [VHostPath, ?STAR_STAR],
+    {ok, Map} = rabbit_khepri:tx_match_and_get_data(Path),
     maps:fold(fun(_, X, Acc) -> [X | Acc] end, [], Map).
 
 -spec lookup_scratch(name(), atom()) ->

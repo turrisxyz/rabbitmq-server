@@ -51,7 +51,7 @@
 -export([delete_crashed/1,
          delete_crashed/2,
          delete_crashed_internal/2]).
--export([update_in_tx/2, lookup_durable_queue/1]).
+-export([update_in_tx/2, lookup_durable_queue/1, list_in_khepri_tx/1]).
 
 -export([pid_of/1, pid_of/2]).
 -export([mark_local_durable_queues_stopped/1]).
@@ -59,7 +59,8 @@
 -export([rebalance/3]).
 -export([collect_info_all/2]).
 
--export([is_policy_applicable/2, declare_args/0, consume_args/0]).
+-export([is_policy_applicable/2, declare_args/0, consume_args/0,
+         is_policy_applicable/3]).
 -export([is_server_named_allowed/1]).
 
 -export([check_max_age/1]).
@@ -70,6 +71,7 @@
 -export([mnesia_write_queue_to_khepri/1, mnesia_write_durable_queue_to_khepri/1,
          mnesia_delete_queue_to_khepri/1, mnesia_delete_durable_queue_to_khepri/1,
          clear_queue_data_in_khepri/0, clear_durable_queue_data_in_khepri/0]).
+-export([update_in_khepri/2]).
 
 %% internal
 -export([internal_declare/2, internal_delete/2, run_backing_queue/3,
@@ -546,6 +548,17 @@ policy_changed(Q1, Q2) ->
 
 is_policy_applicable(QName, Policy) ->
     case lookup(QName) of
+        {ok, Q} ->
+            rabbit_queue_type:is_policy_applicable(Q, Policy);
+        _ ->
+            %% Defaults to previous behaviour. Apply always
+            true
+    end.
+
+is_policy_applicable(QName, Policy, mnesia) ->
+    is_policy_applicable(QName, Policy);
+is_policy_applicable(QName, Policy, khepri) ->
+    case lookup_as_list_in_khepri(rabbit_queue, QName) of
         {ok, Q} ->
             rabbit_queue_type:is_policy_applicable(Q, Policy);
         _ ->
@@ -1516,6 +1529,11 @@ list_in_mnesia(VHostPath, TableName) ->
 list_in_khepri(VHostPath, TableName) ->
     Path = mnesia_table_to_khepri_path(TableName),
     {ok, Map} = rabbit_khepri:match_and_get_data(Path ++ [VHostPath, ?STAR_STAR]),
+    maps:values(Map).
+
+list_in_khepri_tx(VHostPath) ->
+    Path = khepri_queues_path(),
+    {ok, Map} = rabbit_khepri:tx_match_and_get_data(Path ++ [VHostPath, ?STAR_STAR]),
     maps:values(Map).
 
 list_with_possible_retry(Fun) ->
