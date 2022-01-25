@@ -172,24 +172,26 @@ get(Name, EntityName = #resource{virtual_host = VHost}) ->
          match(EntityName, list(VHost)),
          match(EntityName, list_op(VHost))).
 
+%% It's exported, so give it a default until all khepri transformation is sorted
 match(Name, Policies) ->
-    match(Name, Policies, mnesia).
+    match(Name, Policies, is_policy_applicable_in_mnesia).
 
-match(Name, Policies, Datastore) ->
-    case match_all(Name, Policies, Datastore) of
+match(Name, Policies, Function) ->
+    case match_all(Name, Policies, Function) of
         []           -> undefined;
         [Policy | _] -> Policy
     end.
 
+%% It's exported, so give it a default until all khepri transformation is sorted
 match_all(Name, Policies) ->
-    match_all(Name, Policies, mnesia).
+    match_all(Name, Policies, is_policy_applicable_in_mnesia).
 
-match_all(Name, Policies, Datastore) ->
-   lists:sort(fun priority_comparator/2, [P || P <- Policies, matches(Name, P, Datastore)]).
+match_all(Name, Policies, Function) ->
+   lists:sort(fun priority_comparator/2, [P || P <- Policies, matches(Name, P, Function)]).
 
-matches(#resource{name = Name, kind = Kind, virtual_host = VHost} = Resource, Policy, Datastore) ->
+matches(#resource{name = Name, kind = Kind, virtual_host = VHost} = Resource, Policy, Function) ->
     matches_type(Kind, pget('apply-to', Policy)) andalso
-        is_applicable(Resource, pget(definition, Policy), Datastore) andalso
+        is_applicable(Resource, pget(definition, Policy), Function) andalso
         match =:= re:run(Name, pget(pattern, Policy), [{capture, none}]) andalso
         VHost =:= pget(vhost, Policy).
 
@@ -469,9 +471,9 @@ update_matched_objects_in_mnesia(VHost) ->
                 {'EXIT', Exit} ->
                     exit(Exit);
                 {Policies, OpPolicies} ->
-                    {[update_exchange(X, Policies, OpPolicies, update_in_mnesia) ||
+                    {[update_exchange(X, Policies, OpPolicies, update_in_mnesia, is_policy_applicable_in_mnesia) ||
                         X <- rabbit_exchange:list_in_mnesia(VHost)],
-                    [update_queue(Q, Policies, OpPolicies, update_in_mnesia, Decorators, mnesia) ||
+                    [update_queue(Q, Policies, OpPolicies, update_in_mnesia, is_policy_applicable_in_mnesia, Decorators) ||
                         Q <- rabbit_amqqueue:list_in_mnesia(VHost)]}
                 end
         end).
@@ -479,16 +481,16 @@ update_matched_objects_in_mnesia(VHost) ->
 update_matched_objects_in_khepri(VHost) ->
     Decorators = rabbit_queue_decorator:list(),
     rabbit_khepri:transaction(
-        fun() ->
+      fun() ->
             case catch {list0_in_khepri(VHost, fun ident/1), list0_op_in_khepri(VHost, fun ident/1)} of
                 {'EXIT', {throw, {error, {no_such_vhost, _}}}} ->
                     {[], []}; %% [2]
                 {'EXIT', Exit} ->
                     exit(Exit);
                 {Policies, OpPolicies} ->
-                    {[update_exchange(X, Policies, OpPolicies, update_in_khepri) ||
+                    {[update_exchange(X, Policies, OpPolicies, update_in_khepri, is_policy_applicable_in_khepri) ||
                          X <- rabbit_exchange:list_in_khepri_tx(VHost)],
-                     [update_queue(Q, Policies, OpPolicies, update_in_khepri, Decorators, khepri) ||
+                     [update_queue(Q, Policies, OpPolicies, update_in_khepri, is_policy_applicable_in_khepri, Decorators) ||
                          Q <- rabbit_amqqueue:list_in_khepri_tx(VHost)]}
             end
         end, rw).
@@ -496,8 +498,8 @@ update_matched_objects_in_khepri(VHost) ->
 update_exchange(X = #exchange{name = XName,
                               policy = OldPolicy,
                               operator_policy = OldOpPolicy},
-                Policies, OpPolicies, Function) ->
-    case {match(XName, Policies), match(XName, OpPolicies)} of
+                Policies, OpPolicies, Function, IsApplicableFunction) ->
+    case {match(XName, Policies, IsApplicableFunction), match(XName, OpPolicies, IsApplicableFunction)} of
         {OldPolicy, OldOpPolicy} -> no_change;
         {NewPolicy, NewOpPolicy} ->
             NewExchange = rabbit_exchange:Function(
@@ -506,18 +508,18 @@ update_exchange(X = #exchange{name = XName,
                     rabbit_exchange_decorator:set(
                         X0 #exchange{policy = NewPolicy,
                                      operator_policy = NewOpPolicy})
-                    end),
+                end),
             case NewExchange of
                 #exchange{} = X1 -> {X, X1};
                 not_found        -> {X, X }
             end
     end.
 
-update_queue(Q0, Policies, OpPolicies, Function, Decorators, Datastore) when ?is_amqqueue(Q0) ->
+update_queue(Q0, Policies, OpPolicies, Function, IsApplicableFunction, Decorators) when ?is_amqqueue(Q0) ->
     QName = amqqueue:get_name(Q0),
     OldPolicy = amqqueue:get_policy(Q0),
     OldOpPolicy = amqqueue:get_operator_policy(Q0),
-    case {match(QName, Policies, Datastore), match(QName, OpPolicies, Datastore)} of
+    case {match(QName, Policies, IsApplicableFunction), match(QName, OpPolicies, IsApplicableFunction)} of
         {OldPolicy, OldOpPolicy} -> no_change;
         {NewPolicy, NewOpPolicy} ->
             F = fun (QFun0) ->
@@ -567,8 +569,8 @@ matches_type(_,        _)               -> false.
 
 priority_comparator(A, B) -> pget(priority, A) >= pget(priority, B).
 
-is_applicable(#resource{kind = queue} = Resource, Policy, Datastore) ->
-    rabbit_amqqueue:is_policy_applicable(Resource, rabbit_data_coercion:to_list(Policy), Datastore);
+is_applicable(#resource{kind = queue} = Resource, Policy, Function) ->
+    rabbit_amqqueue:Function(Resource, rabbit_data_coercion:to_list(Policy));
 is_applicable(_, _, _) ->
     true.
 

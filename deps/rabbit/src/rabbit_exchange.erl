@@ -25,7 +25,7 @@
          mnesia_delete_durable_exchange_to_khepri/1, mnesia_delete_exchange_serial_to_khepri/1,
          clear_exchange_data_in_khepri/0, clear_durable_exchange_data_in_khepri/0,
          clear_exchange_serial_data_in_khepri/0]).
--export([list_in_khepri_tx/1]).
+-export([list_in_khepri_tx/1, update_in_mnesia/2, update_in_khepri/2]).
 
 %%----------------------------------------------------------------------------
 

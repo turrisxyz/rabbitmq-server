@@ -33,7 +33,7 @@
 -export([notify_sent/2, notify_sent_queue_down/1, resume/2]).
 -export([notify_down_all/2, notify_down_all/3, activate_limit_all/2, credit/5]).
 -export([on_node_up/1, on_node_down/1]).
--export([update/2, store_queue/1, update_decorators/1, policy_changed/2]).
+-export([update/2, update/3, store_queue/1, update_decorators/1, policy_changed/2]).
 -export([update_mirroring/1, sync_mirrors/1, cancel_sync_mirrors/1]).
 -export([emit_unresponsive/6, emit_unresponsive_local/5, is_unresponsive/2]).
 -export([has_synchronised_mirrors_online/1, is_match/2, is_in_virtual_host/2]).
@@ -51,7 +51,8 @@
 -export([delete_crashed/1,
          delete_crashed/2,
          delete_crashed_internal/2]).
--export([update_in_tx/2, lookup_durable_queue/1, list_in_khepri_tx/1]).
+-export([update_in_tx/2, lookup_durable_queue/1, list_in_khepri_tx/1,
+         is_policy_applicable_in_mnesia/2, is_policy_applicable_in_khepri/2]).
 
 -export([pid_of/1, pid_of/2]).
 -export([mark_local_durable_queues_stopped/1]).
@@ -59,8 +60,7 @@
 -export([rebalance/3]).
 -export([collect_info_all/2]).
 
--export([is_policy_applicable/2, declare_args/0, consume_args/0,
-         is_policy_applicable/3]).
+-export([is_policy_applicable/2, declare_args/0, consume_args/0]).
 -export([is_server_named_allowed/1]).
 
 -export([check_max_age/1]).
@@ -71,7 +71,6 @@
 -export([mnesia_write_queue_to_khepri/1, mnesia_write_durable_queue_to_khepri/1,
          mnesia_delete_queue_to_khepri/1, mnesia_delete_durable_queue_to_khepri/1,
          clear_queue_data_in_khepri/0, clear_durable_queue_data_in_khepri/0]).
--export([update_in_khepri/2]).
 
 %% internal
 -export([internal_declare/2, internal_delete/2, run_backing_queue/3,
@@ -411,6 +410,11 @@ update(Name, Fun) ->
       fun() -> update_in_mnesia(Name, Fun) end,
       fun() -> update_in_khepri(Name, Fun) end).
 
+update(Name, Fun, mnesia) ->
+    update_in_mnesia(Name, Fun);
+update(Name, Fun, khepri) ->
+    update_in_khepri(Name, Fun).
+
 update_in_tx(Name, Fun) ->
     rabbit_khepri:try_mnesia_or_khepri(
       fun() -> rabbit_misc:execute_mnesia_transaction(
@@ -547,6 +551,11 @@ policy_changed(Q1, Q2) ->
     notify_policy_changed(Q2).
 
 is_policy_applicable(QName, Policy) ->
+    rabbit_khepri:try_mnesia_or_khepri(
+      fun() -> is_policy_applicable_in_mnesia(QName, Policy) end,
+      fun() -> is_policy_applicable_in_khepri(QName, Policy) end).
+
+is_policy_applicable_in_mnesia(QName, Policy) ->
     case lookup(QName) of
         {ok, Q} ->
             rabbit_queue_type:is_policy_applicable(Q, Policy);
@@ -555,9 +564,7 @@ is_policy_applicable(QName, Policy) ->
             true
     end.
 
-is_policy_applicable(QName, Policy, mnesia) ->
-    is_policy_applicable(QName, Policy);
-is_policy_applicable(QName, Policy, khepri) ->
+is_policy_applicable_in_khepri(QName, Policy) ->
     case lookup_as_list_in_khepri(rabbit_queue, QName) of
         {ok, Q} ->
             rabbit_queue_type:is_policy_applicable(Q, Policy);
