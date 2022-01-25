@@ -462,6 +462,7 @@ update_matched_objects_in_mnesia(VHost) ->
     Tabs = [rabbit_queue,    rabbit_durable_queue,
             rabbit_exchange, rabbit_durable_exchange],
     Decorators = rabbit_queue_decorator:list(),
+    EDecorators = rabbit_exchange_decorator:list(),
     rabbit_misc:execute_mnesia_transaction(
         fun() ->
             [mnesia:lock({table, T}, write) || T <- Tabs], %% [1]
@@ -471,7 +472,7 @@ update_matched_objects_in_mnesia(VHost) ->
                 {'EXIT', Exit} ->
                     exit(Exit);
                 {Policies, OpPolicies} ->
-                    {[update_exchange(X, Policies, OpPolicies, update_in_mnesia, is_policy_applicable_in_mnesia) ||
+                    {[update_exchange(X, Policies, OpPolicies, update_in_mnesia, is_policy_applicable_in_mnesia, EDecorators) ||
                         X <- rabbit_exchange:list_in_mnesia(VHost)],
                     [update_queue(Q, Policies, OpPolicies, update_in_mnesia, is_policy_applicable_in_mnesia, Decorators) ||
                         Q <- rabbit_amqqueue:list_in_mnesia(VHost)]}
@@ -480,6 +481,7 @@ update_matched_objects_in_mnesia(VHost) ->
 
 update_matched_objects_in_khepri(VHost) ->
     Decorators = rabbit_queue_decorator:list(),
+    EDecorators = rabbit_exchange_decorator:list(),
     rabbit_khepri:transaction(
       fun() ->
             case catch {list0_in_khepri(VHost, fun ident/1), list0_op_in_khepri(VHost, fun ident/1)} of
@@ -488,7 +490,7 @@ update_matched_objects_in_khepri(VHost) ->
                 {'EXIT', Exit} ->
                     exit(Exit);
                 {Policies, OpPolicies} ->
-                    {[update_exchange(X, Policies, OpPolicies, update_in_khepri, is_policy_applicable_in_khepri) ||
+                    {[update_exchange(X, Policies, OpPolicies, update_in_khepri, is_policy_applicable_in_khepri, EDecorators) ||
                          X <- rabbit_exchange:list_in_khepri_tx(VHost)],
                      [update_queue(Q, Policies, OpPolicies, update_in_khepri, is_policy_applicable_in_khepri, Decorators) ||
                          Q <- rabbit_amqqueue:list_in_khepri_tx(VHost)]}
@@ -498,7 +500,7 @@ update_matched_objects_in_khepri(VHost) ->
 update_exchange(X = #exchange{name = XName,
                               policy = OldPolicy,
                               operator_policy = OldOpPolicy},
-                Policies, OpPolicies, Function, IsApplicableFunction) ->
+                Policies, OpPolicies, Function, IsApplicableFunction, Decorators) ->
     case {match(XName, Policies, IsApplicableFunction), match(XName, OpPolicies, IsApplicableFunction)} of
         {OldPolicy, OldOpPolicy} -> no_change;
         {NewPolicy, NewOpPolicy} ->
@@ -507,7 +509,8 @@ update_exchange(X = #exchange{name = XName,
                 fun(X0) ->
                     rabbit_exchange_decorator:set(
                         X0 #exchange{policy = NewPolicy,
-                                     operator_policy = NewOpPolicy})
+                                     operator_policy = NewOpPolicy},
+                     Decorators)
                 end),
             case NewExchange of
                 #exchange{} = X1 -> {X, X1};
