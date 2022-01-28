@@ -25,7 +25,7 @@
          mnesia_delete_durable_exchange_to_khepri/1, mnesia_delete_exchange_serial_to_khepri/1,
          clear_exchange_data_in_khepri/0, clear_durable_exchange_data_in_khepri/0,
          clear_exchange_serial_data_in_khepri/0]).
--export([list_in_khepri_tx/1, update_in_mnesia/2, update_in_khepri/2]).
+-export([list_in_mnesia/1, list_in_khepri_tx/1, update_in_mnesia/2, update_in_khepri/2]).
 
 %%----------------------------------------------------------------------------
 
@@ -60,7 +60,9 @@ recover(VHost) ->
                       end,
                       rabbit_durable_exchange)
            end,
-           fun() -> rabbit_khepri_misc:table_filter_in_khepri(
+           fun() ->
+                   Exchanges = rabbit_registry:lookup_all(exchange),
+                   rabbit_khepri_misc:table_filter_in_khepri(
                       fun (#exchange{name = XName}) ->
                               XName#resource.virtual_host =:= VHost andalso
                                   lookup_as_list_in_khepri(XName) =:= []
@@ -70,7 +72,7 @@ recover(VHost) ->
                                        true  -> store_ram_in_khepri(X);
                                        false -> rabbit_exchange_decorator:set(X)
                                    end,
-                              callback(X1, create, map_create_tx(Tx), [X1])
+                              callback_in_khepri(X1, create, map_create_tx(Tx), [X1], Exchanges)
                       end,
                       khepri_durable_exchanges_path())
            end),
@@ -89,6 +91,25 @@ callback(X = #exchange{type       = XType,
         M <- rabbit_exchange_decorator:select(all, Decorators)],
     Module = type_to_module(XType),
     apply(Module, Fun, [Serial(Module:serialise_events()) | Args]).
+
+callback_in_khepri(X = #exchange{type       = XType,
+                                 decorators = Decorators}, Fun, Serial0, Args,
+                   Exchanges) ->
+    Serial = if is_function(Serial0) -> Serial0;
+                is_atom(Serial0)     -> fun (_Bool) -> Serial0 end
+             end,
+    [ok = apply_fun(M, Fun, [Serial(M:serialise_events(X)) | Args]) ||
+        M <- rabbit_exchange_decorator:select(all, Decorators)],
+    Module = type_to_module_in_khepri(XType, Exchanges),
+    apply_fun(Module, Fun, [Serial(Module:serialise_events()) | Args]).
+
+%% TODO hack, let's try to run the full suite!
+apply_fun(M, F, [A]) ->
+    M:F(A);
+apply_fun(M, F, [A1, A2]) ->
+    M:F(A1, A2);
+apply_fun(M, F, [A1, A2, A3]) ->
+    M:F(A1, A2, A3).
 
 -spec policy_changed
         (rabbit_types:exchange(), rabbit_types:exchange()) -> 'ok'.
@@ -187,6 +208,7 @@ declare(XName, Type, Durable, AutoDelete, Internal, Args, Username) ->
                             end)
                   end,
                   fun() ->
+                          Exchanges = rabbit_registry:lookup_all(exchange),
                           rabbit_khepri_misc:execute_khepri_transaction(
                             fun() ->
                                     case lookup_as_list_in_khepri(XName) of
@@ -197,7 +219,7 @@ declare(XName, Type, Durable, AutoDelete, Internal, Args, Username) ->
                                     end
                             end,
                             fun ({new, Exchange}, Tx) ->
-                                    ok = callback(X, create, map_create_tx(Tx), [Exchange]),
+                                    ok = callback_in_khepri(X, create, map_create_tx(Tx), [Exchange], Exchanges),
                                     {notify, Tx, Exchange};
                                 ({existing, Exchange}, _Tx) ->
                                     Exchange;
@@ -869,6 +891,12 @@ type_to_module(T) ->
             end;
         Module ->
             Module
+    end.
+
+type_to_module_in_khepri(T, All) ->
+    case proplists:get_value({exchange, T}, All, undefined) of
+        undefined -> rabbit_exchange_type_invalid;
+        Module -> Module
     end.
 
 khepri_exchanges_path() ->

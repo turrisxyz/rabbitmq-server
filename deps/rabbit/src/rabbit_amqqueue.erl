@@ -26,6 +26,7 @@
 -export([count/0]).
 -export([list_down/1, count/1, list_names/0, list_names/1, list_local_names/0,
          list_local_names_down/0, list_with_possible_retry/1]).
+-export([list_with_possible_retry_in_mnesia/1, list_with_possible_retry_in_khepri/1]).
 -export([list_by_type/1, sample_local_queues/0, sample_n_by_name/2, sample_n/2]).
 -export([force_event_refresh/1, notify_policy_changed/1]).
 -export([consumers/1, consumers_all/1,  emit_consumers_all/4, consumer_info_keys/0]).
@@ -53,6 +54,7 @@
          delete_crashed_internal/2]).
 -export([update_in_tx/2, lookup_durable_queue/1, list_in_khepri_tx/1,
          is_policy_applicable_in_mnesia/2, is_policy_applicable_in_khepri/2]).
+-export([list_in_mnesia/1, update_in_mnesia/2, update_in_khepri/2]).
 
 -export([pid_of/1, pid_of/2]).
 -export([mark_local_durable_queues_stopped/1]).
@@ -1279,12 +1281,9 @@ check_queue_type(_Val, _Args) ->
 -spec list() -> [amqqueue:amqqueue()].
 
 list() ->
-    list_with_possible_retry(fun do_list/0).
-
-do_list() ->
     rabbit_khepri:try_mnesia_or_khepri(
-      fun() -> list_in_mnesia() end,
-      fun() -> list_in_khepri() end).
+      fun() -> list_with_possible_retry_in_mnesia(fun list_in_mnesia/0) end,
+      fun() -> list_with_possible_retry_in_khepri(fun list_in_khepri/0) end).
 
 list_in_mnesia() ->
     mnesia:dirty_match_object(rabbit_queue, amqqueue:pattern_match_all()).
@@ -1511,18 +1510,16 @@ list(VHostPath) ->
     list(VHostPath, rabbit_queue).
 
 list(VHostPath, TableName) ->
-    list_with_possible_retry(fun() -> do_list(VHostPath, TableName) end).
-
-%% Not dirty_match_object since that would not be transactional when used in a
-%% tx context
-do_list(VHostPath, TableName) ->
     rabbit_khepri:try_mnesia_or_khepri(
-      fun() ->
-              list_in_mnesia(VHostPath, TableName)
+      fun() -> list_with_possible_retry_in_mnesia(
+                 fun() -> list_in_mnesia(VHostPath, TableName) end)
       end,
-      fun() ->
-              list_in_khepri(VHostPath, TableName)
+      fun() -> list_with_possible_retry_in_khepri(
+                 fun() -> list_in_khepri(VHostPath, TableName) end)
       end).
+
+list_in_mnesia(VHostPath) ->
+    list_in_mnesia(VHostPath, rabbit_queue).
 
 list_in_mnesia(VHostPath, TableName) ->
     mnesia:async_dirty(
@@ -1544,6 +1541,11 @@ list_in_khepri_tx(VHostPath) ->
     maps:values(Map).
 
 list_with_possible_retry(Fun) ->
+    rabbit_khepri:try_mnesia_or_khepri(
+      fun() -> list_with_possible_retry_in_mnesia(Fun) end,
+      fun() -> list_with_possible_retry_in_mnesia(Fun) end).
+
+list_with_possible_retry_in_mnesia(Fun) ->
     %% amqqueue migration:
     %% The `rabbit_queue` or `rabbit_durable_queue` tables
     %% might be migrated between the time we query the pattern
@@ -1563,6 +1565,27 @@ list_with_possible_retry(Fun) ->
     case Fun() of
         [] ->
             case mnesia:is_transaction() of
+                true ->
+                    [];
+                false ->
+                    case amqqueue:record_version_to_use() of
+                        AmqqueueRecordVersion -> [];
+                        _                     -> Fun()
+                    end
+            end;
+        Ret ->
+            Ret
+    end.
+
+list_with_possible_retry_in_khepri(Fun) ->
+    %% See equivalent `list_with_possible_retry_in_mnesia` first.
+    %% Not sure how much of this is possible in Khepri, as there is no dirty read,
+    %% but the amqqueue record migration is still happening.
+    %% Let's retry just in case
+    AmqqueueRecordVersion = amqqueue:record_version_to_use(),
+    case Fun() of
+        [] ->
+            case khepri_tx:is_transaction() of
                 true ->
                     [];
                 false ->
@@ -1605,11 +1628,20 @@ count(VHost) ->
   end.
 
 list_for_count(VHost) ->
-    list_with_possible_retry(
+    rabbit_khepri:try_mnesia_or_khepri(
       fun() ->
-              mnesia:dirty_index_read(rabbit_queue,
-                                      VHost,
-                                      amqqueue:field_vhost())
+              list_with_possible_retry_in_mnesia(
+                fun() ->
+                        mnesia:dirty_index_read(rabbit_queue,
+                                                VHost,
+                                                amqqueue:field_vhost())
+                end)
+      end,
+      fun() ->
+              list_with_possible_retry_in_khepri(
+                fun() ->
+                        list_in_khepri(VHost, rabbit_queue)
+                end)
       end).
 
 -spec info_keys() -> rabbit_types:info_keys().
