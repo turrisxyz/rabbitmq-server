@@ -72,7 +72,8 @@
 
 -export([mnesia_write_queue_to_khepri/1, mnesia_write_durable_queue_to_khepri/1,
          mnesia_delete_queue_to_khepri/1, mnesia_delete_durable_queue_to_khepri/1,
-         clear_queue_data_in_khepri/0, clear_durable_queue_data_in_khepri/0]).
+         clear_queue_data_in_khepri/0, clear_durable_queue_data_in_khepri/0,
+         lookup_in_khepri/2]).
 
 %% internal
 -export([internal_declare/2, internal_delete/2, run_backing_queue/3,
@@ -224,17 +225,14 @@ find_local_durable_queues_in_mnesia(VHost) ->
       end).
 
 find_local_durable_queues_in_khepri(VHost) ->
-    rabbit_khepri:transaction(
-      fun() ->
-              Path = khepri_durable_queues_path(),
-              {ok, Map} = rabbit_khepri:tx_match_and_get_data(Path ++ [VHost, ?STAR_STAR]),
-              maps:fold(fun(_, Q, Acc) ->
-                                case rabbit_queue_type:is_recoverable(Q) of
-                                    true -> [Q | Acc];
-                                    _ -> Acc
-                                end
-                        end, [], Map)
-      end, ro).
+    Path = khepri_durable_queues_path(),
+    {ok, Map} = rabbit_khepri:match_and_get_data(Path ++ [VHost, ?STAR_STAR]),
+    maps:fold(fun(_, Q, Acc) ->
+                      case rabbit_queue_type:is_recoverable(Q) of
+                          true -> [Q | Acc];
+                          _ -> Acc
+                      end
+              end, [], Map).
 
 find_recoverable_queues() ->
     rabbit_khepri:try_mnesia_or_khepri(
