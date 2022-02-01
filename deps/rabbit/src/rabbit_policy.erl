@@ -252,23 +252,29 @@ recover() ->
 %% recovery has not yet happened; we must work with the rabbit_durable_<thing>
 %% variants.
 recover0() ->
-    Xs = mnesia:dirty_match_object(rabbit_durable_exchange, #exchange{_ = '_'}),
-    Qs = rabbit_amqqueue:list_with_possible_retry(
-           fun() ->
-                   mnesia:dirty_match_object(
-                     rabbit_durable_queue, amqqueue:pattern_match_all())
-           end),
+    Xs0 = rabbit_khepri:try_mnesia_or_khepri(
+            fun() -> rabbit_exchange:list_in_mnesia(rabbit_durable_exchange) end,
+            fun() -> rabbit_exchange:list_in_khepri(rabbit_durable_exchange) end),
     Policies = list(),
     OpPolicies = list_op(),
-    [rabbit_misc:execute_mnesia_transaction(
-       fun () ->
-               mnesia:write(
-                 rabbit_durable_exchange,
-                 rabbit_exchange_decorator:set(
-                   X#exchange{policy = match(Name, Policies),
-                              operator_policy = match(Name, OpPolicies)}),
-                 write)
-       end) || X = #exchange{name = Name} <- Xs],
+    Xs = [rabbit_exchange_decorator:set(
+            X#exchange{policy = match(Name, Policies),
+                       operator_policy = match(Name, OpPolicies)})
+          || X = #exchange{name = Name} <- Xs0],
+    Qs = rabbit_amqqueue:list_table(rabbit_durable_queue),
+    rabbit_khepri:try_mnesia_or_khepri(
+      fun() ->
+              [rabbit_misc:execute_mnesia_transaction(
+                 fun () ->
+                         mnesia:write(rabbit_durable_exchange, X, write)
+                 end) || X <- Xs]
+      end,
+      fun() ->
+              rabbit_khepri:transaction(
+                fun() ->
+                        [rabbit_exchange:store_in_khepri(X, rabbit_durable_exchange) || X <- Xs]
+                end)
+      end),
     [begin
          QName = amqqueue:get_name(Q0),
          Policy1 = match(QName, Policies),
@@ -276,18 +282,35 @@ recover0() ->
          OpPolicy1 = match(QName, OpPolicies),
          Q2 = amqqueue:set_operator_policy(Q1, OpPolicy1),
          Q3 = rabbit_queue_decorator:set(Q2),
-         ?try_mnesia_tx_or_upgrade_amqqueue_and_retry(
-            rabbit_misc:execute_mnesia_transaction(
-              fun () ->
-                      mnesia:write(rabbit_durable_queue, Q3, write)
-              end),
-            begin
-                Q4 = amqqueue:upgrade(Q3),
-                rabbit_misc:execute_mnesia_transaction(
-                  fun () ->
-                          mnesia:write(rabbit_durable_queue, Q4, write)
-                  end)
-            end)
+         rabbit_khepri:try_mnesia_or_khepri(
+           fun() ->
+                   ?try_mnesia_tx_or_upgrade_amqqueue_and_retry(
+                      rabbit_misc:execute_mnesia_transaction(
+                        fun () ->
+                                mnesia:write(rabbit_durable_queue, Q3, write)
+                        end),
+                      begin
+                          Q4 = amqqueue:upgrade(Q3),
+                          rabbit_misc:execute_mnesia_transaction(
+                            fun () ->
+                                    mnesia:write(rabbit_durable_queue, Q4, write)
+                            end)
+                      end)
+           end,
+           fun() ->
+                   ?try_mnesia_tx_or_upgrade_amqqueue_and_retry(
+                      rabbit_khepri:transaction(
+                        fun () ->
+                                rabbit_amqqueue:store_queue_in_khepri(Q3, rabbit_durable_queue)
+                        end),
+                      begin
+                          Q4 = amqqueue:upgrade(Q3),
+                          rabbit_khepri:transaction(
+                            fun () ->
+                                    rabbit_amqqueue:store_queue_in_khepri(Q4, rabbit_durable_queue)
+                            end)
+                      end)
+           end)
      end || Q0 <- Qs],
     ok.
 
@@ -473,9 +496,9 @@ update_matched_objects_in_mnesia(VHost) ->
                     exit(Exit);
                 {Policies, OpPolicies} ->
                     {[update_exchange(X, Policies, OpPolicies, update_in_mnesia, is_policy_applicable_in_mnesia, EDecorators) ||
-                        X <- rabbit_exchange:list_in_mnesia(VHost)],
+                        X <- rabbit_exchange:list_in_mnesia(rabbit_exchange, VHost)],
                     [update_queue(Q, Policies, OpPolicies, update_in_mnesia, is_policy_applicable_in_mnesia, Decorators) ||
-                        Q <- rabbit_amqqueue:list_in_mnesia(VHost)]}
+                        Q <- rabbit_amqqueue:list_in_mnesia(rabbit_exchange, VHost)]}
                 end
         end).
 

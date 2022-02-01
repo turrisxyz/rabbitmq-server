@@ -300,9 +300,9 @@ become_leader(QName, Name) ->
                   case rabbit_amqqueue:lookup(QName) of
                       {ok, Q0} when ?is_amqqueue(Q0) ->
                           Nodes = get_nodes(Q0),
-                          [rpc:call(Node, ?MODULE, rpc_delete_metrics,
+                          [rpc:call(N, ?MODULE, rpc_delete_metrics,
                                     [QName], ?RPC_TIMEOUT)
-                           || Node <- Nodes, Node =/= node()];
+                           || N <- Nodes, N =/= node()];
                       _ ->
                           ok
                   end

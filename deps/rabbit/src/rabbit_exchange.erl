@@ -25,7 +25,8 @@
          mnesia_delete_durable_exchange_to_khepri/1, mnesia_delete_exchange_serial_to_khepri/1,
          clear_exchange_data_in_khepri/0, clear_durable_exchange_data_in_khepri/0,
          clear_exchange_serial_data_in_khepri/0]).
--export([list_in_mnesia/1, list_in_khepri_tx/1, update_in_mnesia/2, update_in_khepri/3]).
+-export([list_in_mnesia/2, list_in_khepri_tx/1, update_in_mnesia/2, update_in_khepri/3]).
+-export([list_in_mnesia/1, list_in_khepri/1, store_in_khepri/2]).
 
 %%----------------------------------------------------------------------------
 
@@ -241,6 +242,11 @@ store_ram_in_khepri(X) ->
     {ok, _} = khepri_tx:put(Path, #kpayload_data{data = X}),
     X.
 
+store_in_khepri(X = #exchange{durable = true}, TableName) ->
+    Path = mnesia_table_to_khepri_path(TableName, X#exchange.name),
+    {ok, _} = khepri_tx:put(Path, #kpayload_data{data = X}),
+    ok.
+
 %% Used with binaries sent over the wire; the type may not exist.
 
 -spec check_type
@@ -357,14 +363,14 @@ lookup_or_die(Name) ->
 
 list() ->
     rabbit_khepri:try_mnesia_or_khepri(
-      fun() -> list_in_mnesia() end,
-      fun() -> list_in_khepri() end).
+      fun() -> list_in_mnesia(rabbit_exchange) end,
+      fun() -> list_in_khepri(rabbit_exchange) end).
 
-list_in_mnesia() ->
-    mnesia:dirty_match_object(rabbit_exchange, #exchange{_ = '_'}).
+list_in_mnesia(Table) ->
+    mnesia:dirty_match_object(Table, #exchange{_ = '_'}).
 
-list_in_khepri() ->
-    Path = khepri_exchanges_path(),
+list_in_khepri(Table) ->
+    Path = mnesia_table_to_khepri_path(Table),
     case rabbit_khepri:list_child_data(Path) of
         {ok, Queues} -> maps:values(Queues);
         _            -> []
@@ -412,23 +418,23 @@ list_names_in_khepri() ->
 list(VHostPath) ->
     rabbit_khepri:try_mnesia_or_khepri(
       fun() ->
-              list_in_mnesia(VHostPath)
+              list_in_mnesia(rabbit_exchange, VHostPath)
       end,
       fun() ->
-              list_in_khepri(VHostPath)
+              list_in_khepri(rabbit_exchange, VHostPath)
       end).
 
-list_in_mnesia(VHostPath) ->
+list_in_mnesia(Table, VHostPath) ->
     mnesia:async_dirty(
       fun () ->
               mnesia:match_object(
-                rabbit_exchange,
+                Table,
                 #exchange{name = rabbit_misc:r(VHostPath, exchange), _ = '_'},
                 read)
       end).
 
-list_in_khepri(VHostPath) ->
-    Path = khepri_exchanges_path() ++ [VHostPath, ?STAR_STAR],
+list_in_khepri(Table, VHostPath) ->
+    Path = mnesia_table_to_khepri_path(Table) ++ [VHostPath, ?STAR_STAR],
     {ok, Map} = rabbit_khepri:match_and_get_data(Path),
     maps:fold(fun(_, X, Acc) -> [X | Acc] end, [], Map).
 
@@ -537,7 +543,7 @@ update_in_mnesia(Name, Fun) ->
 
 update_in_khepri(Name, Fun, Decorators) ->
     case lookup_as_list_in_khepri(Name) of
-        [X] -> X1 = rabbit_exchange_decorators:set(Fun(X)),
+        [X] -> X1 = rabbit_exchange_decorators:set(Fun(X), Decorators),
                store_in_khepri(X1);
         []  -> not_found
     end.
@@ -865,6 +871,16 @@ type_to_module(T) ->
         Module ->
             Module
     end.
+
+mnesia_table_to_khepri_path(rabbit_exchange) ->
+    khepri_exchanges_path();
+mnesia_table_to_khepri_path(rabbit_durable_exchange) ->
+    khepri_durable_exchanges_path().
+
+mnesia_table_to_khepri_path(rabbit_exchange, Name) ->
+    khepri_exchange_path(Name);
+mnesia_table_to_khepri_path(rabbit_durable_exchange, Name) ->
+    khepri_durable_exchange_path(Name).
 
 khepri_exchanges_path() ->
     [?MODULE, exchanges].

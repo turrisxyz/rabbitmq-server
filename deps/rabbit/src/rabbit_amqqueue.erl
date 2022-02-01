@@ -54,7 +54,7 @@
          delete_crashed_internal/2]).
 -export([update_in_tx/2, lookup_durable_queue/1, list_in_khepri_tx/1,
          is_policy_applicable_in_mnesia/2, is_policy_applicable_in_khepri/2]).
--export([list_in_mnesia/1, update_in_mnesia/2, update_in_khepri/2]).
+-export([list_in_mnesia/1, list_in_khepri/1, list_table/1, update_in_mnesia/2, update_in_khepri/2]).
 
 -export([pid_of/1, pid_of/2]).
 -export([mark_local_durable_queues_stopped/1]).
@@ -82,7 +82,7 @@
 
 %% For use by classic queue mirroring modules
 -export([lookup_as_list_in_khepri/2]).
--export([store_queue_in_khepri/1, store_queue_ram_in_khepri/2]).
+-export([store_queue_in_khepri/1, store_queue_ram_in_khepri/2, store_queue_in_khepri/2]).
 
 -include_lib("khepri/include/khepri.hrl").
 -include_lib("rabbit_common/include/rabbit.hrl").
@@ -376,6 +376,13 @@ store_queue_ram_in_khepri(Q, Decorators) ->
     Path = khepri_queue_path(amqqueue:get_name(Q)),
     Q1 = rabbit_queue_decorator:set(Q, Decorators),
     case khepri_tx:put(Path, #kpayload_data{data = Q1}) of
+        {ok, _} -> ok;
+        Error   -> khepri_tx:abort(Error)
+    end.
+
+store_queue_in_khepri(Q, TableName) ->
+    Path = mnesia_table_to_khepri_path(TableName, amqqueue:get_name(Q)),
+    case khepri_tx:put(Path, #kpayload_data{data = Q}) of
         {ok, _} -> ok;
         Error   -> khepri_tx:abort(Error)
     end.
@@ -1299,15 +1306,18 @@ check_queue_type(_Val, _Args) ->
 -spec list() -> [amqqueue:amqqueue()].
 
 list() ->
+    list_table(rabbit_queue).
+
+list_table(TableName) ->
     rabbit_khepri:try_mnesia_or_khepri(
-      fun() -> list_with_possible_retry_in_mnesia(fun list_in_mnesia/0) end,
-      fun() -> list_with_possible_retry_in_khepri(fun list_in_khepri/0) end).
+      fun() -> list_with_possible_retry_in_mnesia(fun() -> list_in_mnesia(TableName) end) end,
+      fun() -> list_with_possible_retry_in_khepri(fun() -> list_in_khepri(TableName) end) end).
 
-list_in_mnesia() ->
-    mnesia:dirty_match_object(rabbit_queue, amqqueue:pattern_match_all()).
+list_in_mnesia(Table) ->
+    mnesia:dirty_match_object(Table, amqqueue:pattern_match_all()).
 
-list_in_khepri() ->
-    Path = khepri_queues_path(),
+list_in_khepri(Table) ->
+    Path = mnesia_table_to_khepri_path(Table),
     case rabbit_khepri:list_child_data(Path) of
         {ok, Queues} -> maps:values(Queues);
         _            -> []
@@ -1530,16 +1540,13 @@ list(VHostPath) ->
 list(VHostPath, TableName) ->
     rabbit_khepri:try_mnesia_or_khepri(
       fun() -> list_with_possible_retry_in_mnesia(
-                 fun() -> list_in_mnesia(VHostPath, TableName) end)
+                 fun() -> list_in_mnesia(TableName, VHostPath) end)
       end,
       fun() -> list_with_possible_retry_in_khepri(
-                 fun() -> list_in_khepri(VHostPath, TableName) end)
+                 fun() -> list_in_khepri(TableName, VHostPath) end)
       end).
 
-list_in_mnesia(VHostPath) ->
-    list_in_mnesia(VHostPath, rabbit_queue).
-
-list_in_mnesia(VHostPath, TableName) ->
+list_in_mnesia(TableName, VHostPath) ->
     mnesia:async_dirty(
       fun () ->
               mnesia:match_object(
@@ -1548,7 +1555,7 @@ list_in_mnesia(VHostPath, TableName) ->
                 read)
       end).
 
-list_in_khepri(VHostPath, TableName) ->
+list_in_khepri(TableName, VHostPath) ->
     Path = mnesia_table_to_khepri_path(TableName),
     {ok, Map} = rabbit_khepri:match_and_get_data(Path ++ [VHostPath, ?STAR_STAR]),
     maps:values(Map).
