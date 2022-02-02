@@ -498,7 +498,7 @@ update_matched_objects_in_mnesia(VHost) ->
                     {[update_exchange(X, Policies, OpPolicies, update_in_mnesia, is_policy_applicable_in_mnesia, EDecorators) ||
                         X <- rabbit_exchange:list_in_mnesia(rabbit_exchange, VHost)],
                     [update_queue(Q, Policies, OpPolicies, update_in_mnesia, is_policy_applicable_in_mnesia, Decorators) ||
-                        Q <- rabbit_amqqueue:list_in_mnesia(rabbit_exchange, VHost)]}
+                        Q <- rabbit_amqqueue:list_in_mnesia(rabbit_queue, VHost)]}
                 end
         end).
 

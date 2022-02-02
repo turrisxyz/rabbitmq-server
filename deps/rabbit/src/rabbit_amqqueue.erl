@@ -593,7 +593,7 @@ is_policy_applicable_in_mnesia(QName, Policy) ->
 
 is_policy_applicable_in_khepri(QName, Policy) ->
     case lookup_as_list_in_khepri(rabbit_queue, QName) of
-        {ok, Q} ->
+        [Q] ->
             rabbit_queue_type:is_policy_applicable(Q, Policy);
         _ ->
             %% Defaults to previous behaviour. Apply always
