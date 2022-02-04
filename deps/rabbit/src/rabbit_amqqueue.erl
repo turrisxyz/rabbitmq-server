@@ -355,7 +355,7 @@ store_queue_in_mnesia(Q) ->
       end).
 
 store_queue_in_khepri_tx(Q) ->
-    Decorators = rabbit_queue_decorator:list(),
+    Decorators = [D || D <- rabbit_queue_decorator:list(), D:active_for(Q)],
     rabbit_khepri:transaction(
       fun() ->
               store_queue_in_khepri(Q),
@@ -577,6 +577,8 @@ policy_changed(Q1, Q2) ->
     %% mirroring-related has changed - the policy may have changed anyway.
     notify_policy_changed(Q2).
 
+is_policy_applicable(Q, Policy) when ?is_amqqueue(Q) ->
+    rabbit_queue_type:is_policy_applicable(Q, Policy);
 is_policy_applicable(QName, Policy) ->
     rabbit_khepri:try_mnesia_or_khepri(
       fun() -> is_policy_applicable_in_mnesia(QName, Policy) end,
