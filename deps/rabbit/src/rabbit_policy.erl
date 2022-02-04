@@ -172,18 +172,24 @@ get(Name, EntityName = #resource{virtual_host = VHost}) ->
          match(EntityName, list(VHost)),
          match(EntityName, list_op(VHost))).
 
-match(Name, Policies) ->
-    case match_all(Name, Policies) of
+match(NameOrQueue, Policies) ->
+    case match_all(NameOrQueue, Policies) of
         []           -> undefined;
         [Policy | _] -> Policy
     end.
 
-match_all(Name, Policies) ->
-   lists:sort(fun priority_comparator/2, [P || P <- Policies, matches(Name, P)]).
+match_all(NameOrQueue, Policies) ->
+   lists:sort(fun priority_comparator/2, [P || P <- Policies, matches(NameOrQueue, P)]).
 
 matches(#resource{name = Name, kind = Kind, virtual_host = VHost} = Resource, Policy) ->
     matches_type(Kind, pget('apply-to', Policy)) andalso
         is_applicable(Resource, pget(definition, Policy)) andalso
+        match =:= re:run(Name, pget(pattern, Policy), [{capture, none}]) andalso
+        VHost =:= pget(vhost, Policy);
+matches(Q, Policy) ->
+    #resource{name = Name, kind = Kind, virtual_host = VHost} = Resource = amqqueue:get_name(Q),
+    matches_type(Kind, pget('apply-to', Policy)) andalso
+        is_applicable(Q, pget(definition, Policy)) andalso
         match =:= re:run(Name, pget(pattern, Policy), [{capture, none}]) andalso
         VHost =:= pget(vhost, Policy).
 
@@ -588,7 +594,7 @@ get_updated_queue(Q0, Policies, OpPolicies) when ?is_amqqueue(Q0) ->
     QName = amqqueue:get_name(Q0),
     OldPolicy = amqqueue:get_policy(Q0),
     OldOpPolicy = amqqueue:get_operator_policy(Q0),
-    case {match(QName, Policies), match(QName, OpPolicies)} of
+    case {match(Q0, Policies), match(Q0, OpPolicies)} of
         {OldPolicy, OldOpPolicy} -> no_change;
         {NewPolicy, NewOpPolicy} ->
             Decorators = rabbit_queue_decorator:active(Q0),

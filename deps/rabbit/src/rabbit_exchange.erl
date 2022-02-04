@@ -25,7 +25,7 @@
          mnesia_delete_durable_exchange_to_khepri/1, mnesia_delete_exchange_serial_to_khepri/1,
          clear_exchange_data_in_khepri/0, clear_durable_exchange_data_in_khepri/0,
          clear_exchange_serial_data_in_khepri/0]).
--export([list_in_mnesia/2, list_in_khepri_tx/1, update_in_mnesia/2, update_in_khepri/3]).
+-export([list_in_mnesia/2, list_in_khepri_tx/1, update_in_mnesia/2, update_in_khepri/2]).
 -export([list_in_mnesia/1, list_in_khepri/1, store_in_khepri/2]).
 
 %%----------------------------------------------------------------------------
@@ -468,19 +468,26 @@ update_scratch(Name, App, Fun) ->
       fun () ->
               rabbit_misc:execute_mnesia_transaction(
                 fun() ->
-                        update_in_mnesia(Name, update_scratch(App, Fun)),
+                        update_in_mnesia(Name, update_scratch(App, Fun, [])),
                         ok
                 end)
       end,
       fun() ->
+              Path = khepri_exchange_path(Name),
+              Decorators = case rabbit_khepri:get(Path) of
+                               {ok, #{Path := #{data := X}}} ->
+                                   rabbit_exchange_decorator:active(X);
+                               _ ->
+                                   []
+                           end,
               rabbit_khepri:transaction(
                 fun() ->
-                        update_in_khepri(Name, update_scratch(App, Fun), Decorators),
+                        update_in_khepri(Name, update_scratch_fun(App, Fun, Decorators)),
                         ok
                 end)
       end).
 
-update_scratch(App, Fun) ->
+update_scratch_fun(App, Fun, Decorators) ->
     fun(X = #exchange{scratches = Scratches0}) ->
             Scratches1 = case Scratches0 of
                              undefined -> orddict:new();
@@ -491,7 +498,8 @@ update_scratch(App, Fun) ->
                           error   -> undefined
                       end,
             Scratches2 = orddict:store(App, Fun(Scratch), Scratches1),
-            X#exchange{scratches = Scratches2}
+            X#exchange{scratches = Scratches2,
+                       decorators = Decorators}
     end.
 
 -spec update_decorators(name()) -> 'ok'.
@@ -529,10 +537,9 @@ update_decorators_in_khepri(Name) ->
 update(Name, Fun) ->
     %% TODO is this called from anywhere else? The double check of `rabbit_khepri:try...`
     %% will have issues when compiling the transaction
-    Decorators = rabbit_exchange_decorator:list(),
     rabbit_khepri:try_mnesia_or_khepri(
       fun() -> update_in_mnesia(Name, Fun) end,
-      fun() -> update_in_khepri(Name, Fun, Decorators) end).
+      fun() -> update_in_khepri(Name, Fun) end).
 
 update_in_mnesia(Name, Fun) ->
     case mnesia:wread({rabbit_exchange, Name}) of
@@ -541,9 +548,9 @@ update_in_mnesia(Name, Fun) ->
         []  -> not_found
     end.
 
-update_in_khepri(Name, Fun, Decorators) ->
+update_in_khepri(Name, Fun) ->
     case lookup_as_list_in_khepri(Name) of
-        [X] -> X1 = rabbit_exchange_decorators:set(Fun(X), Decorators),
+        [X] -> X1 = Fun(X),
                store_in_khepri(X1);
         []  -> not_found
     end.
