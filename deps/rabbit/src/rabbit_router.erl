@@ -56,7 +56,7 @@ match_routing_key(SrcName, [RoutingKey]) ->
                           [])
       end,
       fun() ->
-              find_routes_in_khepri(SrcName, [RoutingKey])
+              rabbit_khepri:transaction(fun() -> find_routes_in_khepri(SrcName, [RoutingKey]) end)
       end);
 match_routing_key(SrcName, [_|_] = RoutingKeys) ->
     rabbit_khepri:try_mnesia_or_khepri(
@@ -91,7 +91,7 @@ find_routes(MatchHead, Conditions) ->
 find_routes_in_khepri(SrcName, RoutingKeys) ->
     Data = rabbit_binding:match_source_and_key_in_khepri(SrcName, RoutingKeys),
     %% Extract dest here
-    Bindings = lists:fold(fun(#{bindings := SetOfBindings}, Acc) ->
+    Bindings = lists:foldl(fun(#{bindings := SetOfBindings}, Acc) ->
                                   sets:to_list(SetOfBindings) ++ Acc
                           end, [], maps:values(Data)),
     [Dest || #binding{destination = Dest} <- Bindings].
