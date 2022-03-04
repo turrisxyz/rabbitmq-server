@@ -89,9 +89,4 @@ find_routes(MatchHead, Conditions) ->
     ets:select(rabbit_route, [{MatchHead, Conditions, ['$1']}]).
 
 find_routes_in_khepri(SrcName, RoutingKeys) ->
-    Data = rabbit_binding:match_source_and_key_in_khepri(SrcName, RoutingKeys),
-    %% Extract dest here
-    Bindings = lists:foldl(fun(#{bindings := SetOfBindings}, Acc) ->
-                                  sets:to_list(SetOfBindings) ++ Acc
-                          end, [], maps:values(Data)),
-    [Dest || #binding{destination = Dest} <- Bindings].
+    rabbit_binding:match_source_and_key_in_khepri(SrcName, RoutingKeys).

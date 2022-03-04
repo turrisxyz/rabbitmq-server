@@ -707,7 +707,17 @@ add_binding(Binding, BindingType) ->
     Set = binding_set(Path),
     Data = #{bindings => sets:add_element(Binding, Set), type => BindingType},
     {ok, _} = khepri_tx:put(Path, #kpayload_data{data = Data}),
+    add_routing(Binding),
     ok.
+
+add_routing(#binding{destination = Dst} = Binding) ->
+    Path = khepri_routing_path(Binding),
+    case khepri_tx:get(Path) of
+        {ok, #{Path := #{data := Data}}} ->
+            {ok, _} = khepri_tx:put(Path, #kpayload_data{data = sets:add_element(Dst, Data)});
+        _ ->
+            {ok, _} = khepri_tx:put(Path, #kpayload_data{data = sets:add_element(Dst, sets:new())})
+    end.
 
 delete_binding(Binding) ->
     Path = khepri_route_path(Binding),
@@ -719,6 +729,23 @@ delete_binding(Binding) ->
                     khepri_tx:delete(Path);
                 false ->
                     {ok, _} = khepri_tx:put(Path, #kpayload_data{data = Data#{bindings := Set}})
+            end;
+        _ ->
+            ok
+    end,
+    delete_routing(Binding),
+    ok.
+
+delete_routing(#binding{destination = Dst} = Binding) ->
+    Path = khepri_routing_path(Binding),
+    case khepri_tx:get(Path) of
+        {ok, #{Path := #{data := Data0}}} ->
+            Data = sets:del_element(Dst, Data0),
+            case sets:is_empty(Data) of
+                true ->
+                    khepri_tx:delete(Path);
+                false ->
+                    {ok, _} = khepri_tx:put(Path, #kpayload_data{data = Data})
             end;
         _ ->
             ok
@@ -1050,6 +1077,16 @@ khepri_route_path(#binding{source = #resource{virtual_host = VHost, name = SrcNa
 khepri_routes_path() ->
     [?MODULE, routes].
 
+%% Routing optimisation, probably the most relevant on the hot code path.
+%% It only needs to store a list of destinations to be used by rabbit_router.
+%% Unless there is a high queue churn, this should barely change. Thus, the small
+%% penalty for updates should be worth it.
+khepri_routing_path(#binding{source = Src, key = RoutingKey}) ->
+    khepri_routing_path(Src, RoutingKey).
+
+khepri_routing_path(#resource{virtual_host = VHost, name = Name}, RoutingKey) ->
+    [?MODULE, routing, VHost, Name, RoutingKey].
+
 destination_from_khepri_path([?MODULE, _Type, VHost, _Src, Kind, Dst | _]) ->
     #resource{virtual_host = VHost, kind = Kind, name = Dst}.
 
@@ -1061,10 +1098,16 @@ match_source_in_khepri(#resource{virtual_host = VHost, name = Name}) ->
     {ok, Map} = rabbit_khepri:tx_match_and_get_data(Path),
     Map.
 
-match_source_and_key_in_khepri(#resource{virtual_host = VHost, name = Name}, RoutingKeys) ->
-    Path = khepri_routes_path() ++ [VHost, Name, ?STAR, ?STAR, #if_any{conditions = RoutingKeys}],
-    {ok, Map} = rabbit_khepri:match_and_get_data(Path),
-    Map.
+match_source_and_key_in_khepri(Src, RoutingKeys) ->
+    rabbit_khepri:transaction(
+      fun() ->
+              lists:foldl(
+                fun(RK, Acc) ->
+                        Path = khepri_routing_path(Src, RK),
+                        {ok, #{Path := Dsts}} = khepri_tx:get(Path),
+                        sets:to_list(Dsts) ++ Acc
+                end, [], RoutingKeys)
+      end).
 
 match_source_in_khepri(#resource{virtual_host = VHost, name = Name}, Type) ->
     Path = khepri_routes_path() ++ [VHost, Name, ?STAR_STAR]
