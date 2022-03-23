@@ -180,7 +180,7 @@ recover_semi_durable_route_txn_in_khepri(Path, X) ->
       fun () ->
               case khepri_tx:get(Path) of
                   {ok, #{Path := #{data := #{bindings := Set}}}} ->
-                      {rabbit_exchange:serial_in_mnesia(X), Set};
+                      {rabbit_exchange:serial_in_khepri(X), Set};
                   _ ->
                       no_recover
               end
