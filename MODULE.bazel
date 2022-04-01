@@ -10,9 +10,42 @@ local_path_override(
     path = "../rules_erlang",
 )
 
+bazel_dep(name = "ra", version = "2.0.6")
+
+local_path_override(
+    module_name = "ra",
+    path = "../ra",
+)
+
 erlang_package = use_extension(
     "@rules_erlang//bzlmod:extensions.bzl",
     "erlang_package",
+)
+
+erlang_package.hex(
+    name = "accept",
+    version = "0.3.5",
+)
+
+erlang_package.hex(
+    name = "aten",
+    version = "0.5.7",
+)
+
+erlang_package.hex(
+    name = "cowboy",
+    version = "2.8.0",
+)
+
+erlang_package.hex(
+    name = "base64url",
+    version = "1.0.1",
+)
+
+erlang_package.git(
+    name = "credentials_obfuscation",
+    repository = "rabbitmq/credentials-obfuscation",
+    tag = "v2.4.0",
 )
 
 erlang_package.git(
@@ -30,9 +63,53 @@ erlang_package.hex(
     version = "0.3.3",
 )
 
+erlang_package.git(
+    repository = "rabbitmq/emqttc",
+    branch = "emqttc-remove-logging",
+)
+
+erlang_package.hex(
+    name = "gen_batch_server",
+    version = "0.8.7",
+)
+
+erlang_package.git(
+    name = "inet_tcp_proxy_dist",
+    repository = "rabbitmq/inet_tcp_proxy",
+    branch = "master",
+)
+
+erlang_package.git(
+    name = "jose",
+    repository = "potatosalad/erlang-jose",
+    commit = "2b1d66b5f4fbe33cb198149a8cb23895a2c877ea",
+    build_file_content = """load("@rules_erlang//:erlang_app.bzl", "erlang_app")
+
+erlang_app(
+    app_name = "jose",
+    first_srcs = [
+        "src/jose_block_encryptor.erl",
+        "src/jwk/jose_jwk_use_enc.erl",
+        "src/jwk/jose_jwk_use_sig.erl",
+        "src/jwk/jose_jwk_oct.erl",
+    ],
+)
+""",
+)
+
 erlang_package.hex(
     name = "jsx",
     version = "3.1.0",
+)
+
+erlang_package.git(
+    repository = "eproxus/meck",
+    branch = "master",
+)
+
+erlang_package.hex(
+    name = "observer_cli",
+    version = "1.7.2",
 )
 
 erlang_package.git(
@@ -42,7 +119,7 @@ erlang_package.git(
     build_file_content = """load("@rules_erlang//:erlang_app.bzl", "erlang_app")
 
 erlang_app(
-    app_name = "syslog",
+    app_name = "prometheus",
     first_srcs = [
         "src/prometheus_collector.erl",
         "src/prometheus_format.erl",
@@ -54,6 +131,50 @@ erlang_app(
     ],
 )
 """,
+)
+
+erlang_package.git(
+    repository = "manopapad/proper",
+    branch = "master",
+    build_file_content = """load("@rules_erlang//:erlang_app.bzl", "erlang_app")
+
+erlang_app(
+    app_name = "proper",
+    first_srcs = [
+        "src/vararg.erl",
+        "src/proper_target.erl",
+    ],
+)
+""",
+)
+
+erlang_package.hex(
+    name = "ranch",
+    version = "2.1.0",
+    build_file_content = """load("@rules_erlang//:erlang_app.bzl", "erlang_app")
+
+erlang_app(
+    app_name = "ranch",
+    first_srcs = [
+        "src/ranch_transport.erl",
+    ],
+)
+""",
+)
+
+erlang_package.hex(
+    name = "recon",
+    version = "2.5.2",
+)
+
+erlang_package.hex(
+    name = "redbug",
+    version = "2.0.7",
+)
+
+erlang_package.git(
+    repository = "rabbitmq/seshat",
+    branch = "main",
 )
 
 erlang_package.hex(
@@ -75,48 +196,66 @@ erlang_app(
 """,
 )
 
-# erlang_package.hex(
-#     name = "aten",
-#     version = "0.5.7",
-# )
+erlang_package.hex(
+    name = "sysmon_handler",
+    version = "1.3.0",
+)
 
-# erlang_package.hex(
-#     name = "gen_batch_server",
-#     version = "0.8.7",
-# )
+erlang_package.hex(
+    name = "systemd",
+    version = "0.6.1",
+)
 
-# erlang_package.git(
-#     name = "inet_tcp_proxy_dist",
-#     repository = "rabbitmq/inet_tcp_proxy",
-#     branch = "master",
-# )
+erlang_package.git(
+    name = "trust_store_http",
+    repository = "rabbitmq/trust-store-http",
+    branch = "master",
+    build_file_content = """load("@rules_erlang//:erlang_app.bzl", "erlang_app")
 
-# erlang_package.git(
-#     repository = "eproxus/meck",
-#     branch = "master",
-# )
-
-# erlang_package.git(
-#     repository = "manopapad/proper",
-#     branch = "master",
-#     build_file_content = """load("@rules_erlang//:erlang_app.bzl", "erlang_app")
-
-# erlang_app(
-#     app_name = "proper",
-#     first_srcs = [
-#         "src/vararg.erl",
-#         "src/proper_target.erl",
-#     ],
-# )
-# """,
-# )
+erlang_app(
+    app_name = "trust_store_http",
+    app_description = "Trust store HTTP server",
+    app_module = "trust_store_http_app",
+    app_version = "1.0.0",
+    extra_apps = [
+        "ssl",
+    ],
+    deps = [
+        "@cowboy//:erlang_app",
+        "@jsx//:erlang_app",
+    ],
+)
+"""
+)
 
 use_repo(
     erlang_package,
+    "accept",
+    "aten",
+    "base64url",
+    "cowboy",
+    "cowlib",
+    "credentials_obfuscation",
+    "ct_helper",
     "cuttlefish",
     "eetcd",
+    "emqttc",
+    "gen_batch_server",
+    "gun",
+    "inet_tcp_proxy_dist",
+    "jose",
     "jsx",
+    "meck",
+    "observer_cli",
     "prometheus",
+    "proper",
+    "ranch",
+    "recon",
+    "redbug",
+    "seshat",
     "stdout_formatter",
     "syslog",
+    "sysmon_handler",
+    "systemd",
+    "trust_store_http",
 )

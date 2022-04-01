@@ -167,11 +167,11 @@ def rabbitmq_external_deps(rabbitmq_workspace = "@rabbitmq-server"):
     #         sha256 = "a1d280c112bb5443f09b63041d6c5dda39b40829db40b24fdf208e1b86dab353",
     #     )
 
-    #     git_repository(
-    #         name = "osiris",
-    #         branch = "main",
-    #         remote = "https://github.com/rabbitmq/osiris.git",
-    #     )
+    git_repository(
+        name = "osiris",
+        branch = "main",
+        remote = "https://github.com/rabbitmq/osiris.git",
+    )
 
     #     github_erlang_app(
     #         name = "prometheus",
@@ -208,12 +208,12 @@ def rabbitmq_external_deps(rabbitmq_workspace = "@rabbitmq-server"):
     #         sha256 = "282a8a323ca2a845c9e6f787d166348f776c1d4a41ede63046d72d422e3da946",
     #     )
 
-    #     git_repository(
-    #         name = "ra",
-    #         branch = "main",
-    #         remote = "https://github.com/rabbitmq/ra.git",
-    #         patch_cmds = [RA_INJECT_GIT_VERSION],
-    #     )
+    # git_repository(
+    #     name = "ra",
+    #     branch = "main",
+    #     remote = "https://github.com/rabbitmq/ra.git",
+    #     patch_cmds = [RA_INJECT_GIT_VERSION],
+    # )
 
     #     hex_archive(
     #         name = "ranch",
