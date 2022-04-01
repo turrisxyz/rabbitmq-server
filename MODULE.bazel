@@ -65,7 +65,7 @@ erlang_package.hex(
 
 erlang_package.git(
     repository = "rabbitmq/emqttc",
-    branch = "emqttc-remove-logging",
+    branch = "remove-logging",
 )
 
 erlang_package.hex(
@@ -143,6 +143,20 @@ erlang_app(
     first_srcs = [
         "src/vararg.erl",
         "src/proper_target.erl",
+    ],
+)
+""",
+)
+
+erlang_package.hex(
+    name = "quantile_estimator",
+    version = "0.2.1",
+    build_file_content = """load("@rules_erlang//:erlang_app.bzl", "erlang_app")
+
+erlang_app(
+    app_name = "quantile_estimator",
+    erlc_opts = [
+        "+debug_info",
     ],
 )
 """,

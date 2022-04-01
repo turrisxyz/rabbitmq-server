@@ -184,6 +184,13 @@ def rabbitmq_integration_suite(
         deps = [],
         runtime_deps = [],
         **kwargs):
+    extra_deps = [
+        "//deps/rabbit_common:erlang_app",
+        "//deps/rabbitmq_ct_helpers:erlang_app",
+    ]
+    if package != "deps/amqp_client":
+        extra_deps.append("//deps/amqp_client:erlang_app")
+
     ct_suite(
         name = name,
         suite_name = name,
@@ -211,11 +218,7 @@ def rabbitmq_integration_suite(
             "//deps/rabbitmq_cli:rabbitmqctl",
             "//deps/rabbitmq_ct_client_helpers:erlang_app",
         ] + runtime_deps,
-        deps = [
-            "//deps/amqp_client:erlang_app",
-            "//deps/rabbit_common:erlang_app",
-            "//deps/rabbitmq_ct_helpers:erlang_app",
-        ] + deps,
+        deps = extra_deps + deps,
         **kwargs
     )
 
@@ -242,11 +245,7 @@ def rabbitmq_integration_suite(
             "//deps/rabbitmq_cli:rabbitmqctl",
             "//deps/rabbitmq_ct_client_helpers:erlang_app",
         ] + runtime_deps,
-        deps = [
-            "//deps/amqp_client:erlang_app",
-            "//deps/rabbit_common:erlang_app",
-            "//deps/rabbitmq_ct_helpers:erlang_app",
-        ] + deps,
+        deps = extra_deps + deps,
         **kwargs
     )
 

@@ -171,6 +171,10 @@ def rabbitmq_external_deps(rabbitmq_workspace = "@rabbitmq-server"):
         name = "osiris",
         branch = "main",
         remote = "https://github.com/rabbitmq/osiris.git",
+        repo_mapping = {
+            "@gen_batch_server": "@rules_erlang.erlang_package.gen_batch_server",
+            "@seshat": "@rules_erlang.erlang_package.seshat",
+        },
     )
 
     #     github_erlang_app(
