@@ -57,15 +57,15 @@ load("@rules_pkg//:deps.bzl", "rules_pkg_dependencies")
 
 rules_pkg_dependencies()
 
-# git_repository(
-#     name = "rules_erlang",
-#     commit = "04e49d17027b461864eab8dcc80ea6c298bfc331",
-#     remote = "https://github.com/rabbitmq/rules_erlang.git",
-# )
+git_repository(
+    name = "rules_erlang",
+    commit = "04e49d17027b461864eab8dcc80ea6c298bfc331",
+    remote = "https://github.com/rabbitmq/rules_erlang.git",
+)
 
-# load("@rules_erlang//:rules_erlang.bzl", "rules_erlang_dependencies")
+load("@rules_erlang//:rules_erlang.bzl", "rules_erlang_dependencies")
 
-# rules_erlang_dependencies()
+rules_erlang_dependencies()
 
 load("//:workspace_helpers.bzl", "rabbitmq_external_deps")
 
