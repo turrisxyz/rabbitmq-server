@@ -83,18 +83,6 @@ erlang_package.git(
     name = "jose",
     repository = "potatosalad/erlang-jose",
     commit = "2b1d66b5f4fbe33cb198149a8cb23895a2c877ea",
-    build_file_content = """load("@rules_erlang//:erlang_app.bzl", "erlang_app")
-
-erlang_app(
-    app_name = "jose",
-    first_srcs = [
-        "src/jose_block_encryptor.erl",
-        "src/jwk/jose_jwk_use_enc.erl",
-        "src/jwk/jose_jwk_use_sig.erl",
-        "src/jwk/jose_jwk_oct.erl",
-    ],
-)
-""",
 )
 
 erlang_package.hex(
@@ -120,12 +108,6 @@ erlang_package.git(
 
 erlang_app(
     app_name = "prometheus",
-    first_srcs = [
-        "src/prometheus_collector.erl",
-        "src/prometheus_format.erl",
-        "src/prometheus_instrumenter.erl",
-        "src/prometheus_metric.erl",
-    ],
     deps = [
         "@quantile_estimator//:erlang_app",
     ],
@@ -136,44 +118,16 @@ erlang_app(
 erlang_package.git(
     repository = "manopapad/proper",
     branch = "master",
-    build_file_content = """load("@rules_erlang//:erlang_app.bzl", "erlang_app")
-
-erlang_app(
-    app_name = "proper",
-    first_srcs = [
-        "src/vararg.erl",
-        "src/proper_target.erl",
-    ],
-)
-""",
 )
 
 erlang_package.hex(
     name = "quantile_estimator",
     version = "0.2.1",
-    build_file_content = """load("@rules_erlang//:erlang_app.bzl", "erlang_app")
-
-erlang_app(
-    app_name = "quantile_estimator",
-    erlc_opts = [
-        "+debug_info",
-    ],
-)
-""",
 )
 
 erlang_package.hex(
     name = "ranch",
     version = "2.1.0",
-    build_file_content = """load("@rules_erlang//:erlang_app.bzl", "erlang_app")
-
-erlang_app(
-    app_name = "ranch",
-    first_srcs = [
-        "src/ranch_transport.erl",
-    ],
-)
-""",
 )
 
 erlang_package.hex(
@@ -199,15 +153,6 @@ erlang_package.hex(
 erlang_package.git(
     repository = "schlagert/syslog",
     tag = "4.0.0",
-    build_file_content = """load("@rules_erlang//:erlang_app.bzl", "erlang_app")
-
-erlang_app(
-    app_name = "syslog",
-    first_srcs = [
-        "src/syslog_logger.erl",
-    ],
-)
-""",
 )
 
 erlang_package.hex(
