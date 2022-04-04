@@ -10,13 +10,6 @@ local_path_override(
     path = "../rules_erlang",
 )
 
-# bazel_dep(name = "ra", version = "2.0.6")
-
-# local_path_override(
-#     module_name = "ra",
-#     path = "../ra",
-# )
-
 erlang_package = use_extension(
     "@rules_erlang//bzlmod:extensions.bzl",
     "erlang_package",
@@ -43,20 +36,6 @@ erlang_package.hex(
     name = "cowboy",
     version = "2.8.0",
     sha256 = "4643e4fba74ac96d4d152c75803de6fad0b3fa5df354c71afdd6cbeeb15fac8a",
-    build_file_content = """load("@rules_erlang//:erlang_app.bzl", "erlang_app")
-
-erlang_app(
-    app_name = "cowboy",
-    erlc_opts = [
-        "+deterministic",
-        "+debug_info",
-    ],
-    deps = [
-        "@cowlib//:erlang_app",
-        "@ranch//:erlang_app",
-    ],
-)
-""",
 )
 
 erlang_package.hex(
@@ -121,19 +100,6 @@ erlang_package.hex(
     name = "gun",
     version = "1.3.3",
     sha256 = "3106ce167f9c9723f849e4fb54ea4a4d814e3996ae243a1c828b256e749041e0",
-    build_file_content = """load("@rules_erlang//:erlang_app.bzl", "erlang_app")
-
-erlang_app(
-    app_name = "gun",
-    erlc_opts = [
-        "+deterministic",
-        "+debug_info",
-    ],
-    runtime_deps = [
-        "@cowlib//:erlang_app",
-    ],
-)
-""",
 )
 
 erlang_package.git(
@@ -166,6 +132,16 @@ erlang_package.hex(
 )
 
 erlang_package.git(
+    repository = "rabbitmq/osiris",
+    branch = "main",
+    patch_cmds = ["""
+VERSION=$(git rev-parse HEAD)
+echo "Injecting ${VERSION} into Makefile..."
+sed -i"_orig" -E '/PROJECT_VERSION/ s/[0-9]+\\.[0-9]+\\.[0-9]+/${VERSION}/' src/osiris.app.src
+"""],
+)
+
+erlang_package.git(
     name = "prometheus",
     repository = "deadtrickster/prometheus.erl",
     commit = "06425c21a39c1564164f1cc3fe5bdfa8b23b1f78",
@@ -193,6 +169,16 @@ erlang_package.hex(
     name = "quantile_estimator",
     version = "0.2.1",
     sha256 = "282a8a323ca2a845c9e6f787d166348f776c1d4a41ede63046d72d422e3da946",
+)
+
+erlang_package.git(
+    repository = "rabbitmq/ra",
+    branch = "master",
+    patch_cmds = ["""
+VERSION=$(git rev-parse HEAD)
+echo "Injecting ${VERSION} into ra.app.src..."
+sed -i"_orig" "/vsn,/ s/2\\.[0-9]\\.[0-9]/${VERSION}/" src/ra.app.src
+"""],
 )
 
 erlang_package.hex(
@@ -258,26 +244,6 @@ erlang_package.git(
     name = "trust_store_http",
     repository = "rabbitmq/trust-store-http",
     branch = "master",
-    build_file_content = """load("@rules_erlang//:erlang_app.bzl", "erlang_app")
-
-erlang_app(
-    app_name = "trust_store_http",
-    app_description = "Trust store HTTP server",
-    app_module = "trust_store_http_app",
-    app_version = "1.0.0",
-    erlc_opts = [
-        "+deterministic",
-        "+debug_info",
-    ],
-    extra_apps = [
-        "ssl",
-    ],
-    deps = [
-        "@cowboy//:erlang_app",
-        "@jsx//:erlang_app",
-    ],
-)
-"""
 )
 
 use_repo(
