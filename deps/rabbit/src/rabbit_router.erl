@@ -35,12 +35,14 @@ match_bindings(SrcName, Match) ->
                              [routing_key()] | ['_']) ->
     match_result().
 
-match_routing_key(SrcName, [RoutingKey]) ->
+match_routing_key(SrcName, ['_' = RoutingKey]) ->
     find_routes(#route{binding = #binding{source      = SrcName,
                                           destination = '$1',
                                           key         = RoutingKey,
                                           _           = '_'}},
                 []);
+match_routing_key(SrcName, [RoutingKey]) ->
+    ets:lookup_element(rabbit_route_1, {SrcName, RoutingKey}, 3);
 match_routing_key(SrcName, [_|_] = RoutingKeys) ->
     find_routes(#route{binding = #binding{source      = SrcName,
                                           destination = '$1',

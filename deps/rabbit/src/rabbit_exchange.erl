@@ -419,6 +419,8 @@ route(#exchange{name = #resource{virtual_host = VHost, name = RName} = XName,
                      Decs = rabbit_exchange_decorator:select(route, Decorators),
                      lists:usort(route1(Delivery, Decs, {[X], XName, []}))
              end,
+    %%TODO Use ets:lookup_element/3 to only fetch options field because
+    %% copying the whole queue record takes long and creates a lot of garbage as shown by the flame graph.
     Qs = rabbit_amqqueue:lookup(QNames),
     ExtraBccQNames = infer_extra_bcc(Qs),
     ExtraBccQNames ++ QNames.
