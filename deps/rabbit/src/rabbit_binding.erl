@@ -237,8 +237,9 @@ remove_default_exchange_binding_rows_of(Dst = #resource{}) ->
             mnesia:dirty_delete(rabbit_semi_durable_route, Binding),
             mnesia:dirty_delete(rabbit_reverse_route,
                                 reverse_binding(Binding)),
-            mnesia:dirty_delete_object(rabbit_route_1,
-                                       route_1(Binding)),
+            mnesia:dirty_delete_object(rabbit_route_index_1,
+                                       route_index_1(Binding)),
+            mnesia:dirty_delete_object(rabbit_route_index_2, Binding),
             mnesia:dirty_delete(rabbit_route, Binding);
         _ ->
             %% no binding to remove or
@@ -454,10 +455,11 @@ sync_route(Route, false, true, Fun) ->
 sync_route(Route, _SrcDurable, false, Fun) ->
     sync_transient_route(Route, Fun).
 
-sync_transient_route(Route, Fun) ->
+sync_transient_route(#route{binding = Binding} = Route, Fun) ->
     ok = Fun(rabbit_route, Route, write),
-    ok = Fun(rabbit_route_1, route_1(Route), write),
-    ok = Fun(rabbit_reverse_route, reverse_route(Route), write).
+    ok = Fun(rabbit_reverse_route, reverse_route(Route), write),
+    ok = Fun(rabbit_route_index_1, route_index_1(Route), write),
+    ok = Fun(rabbit_route_index_2, Binding, write).
 
 call_with_source_and_destination(SrcName, DstName, Fun, ErrFun) ->
     SrcTable = table_for_resource(SrcName),
@@ -528,10 +530,12 @@ remove_routes(Routes) ->
 
 delete(Tab, #route{binding = B}, LockKind) ->
     mnesia:delete(Tab, B, LockKind);
-delete(Tab, #route_1{} = Record, LockKind) ->
-    mnesia:delete_object(Tab, Record, LockKind);
 delete(Tab, #reverse_route{reverse_binding = B}, LockKind) ->
-    mnesia:delete(Tab, B, LockKind).
+    mnesia:delete(Tab, B, LockKind);
+delete(Tab, #route_index_1{} = Record, LockKind) ->
+    mnesia:delete_object(Tab, Record, LockKind);
+delete(Tab, #binding{} = B, LockKind) ->
+    mnesia:delete_object(Tab, B, LockKind).
 
 remove_transient_routes(Routes) ->
     [begin
@@ -601,26 +605,26 @@ maybe_auto_delete(XName, Bindings, Deletions, OnlyDurable) ->
         end,
     add_deletion(XName, Entry, Deletions1).
 
-route_1(#route{binding = #binding{source = Source,
-                                  key = Key,
-                                  destination = Destination,
-                                  args = Args}}) ->
-    #route_1{source_key = {Source, Key},
-             destination = Destination,
-             args = Args};
-route_1(#binding{source = Source,
-                 key = Key,
-                 destination = Destination,
-                 args = Args}) ->
-    #route_1{source_key = {Source, Key},
-             destination = Destination,
-             args = Args}.
-
 reverse_route(#route{binding = Binding}) ->
     #reverse_route{reverse_binding = reverse_binding(Binding)};
 
 reverse_route(#reverse_route{reverse_binding = Binding}) ->
     #route{binding = reverse_binding(Binding)}.
+
+route_index_1(#route{binding = #binding{source = Source,
+                                        key = Key,
+                                        destination = Destination,
+                                        args = Args}}) ->
+    #route_index_1{source_key = {Source, Key},
+                   destination = Destination,
+                   args = Args};
+route_index_1(#binding{source = Source,
+                       key = Key,
+                       destination = Destination,
+                       args = Args}) ->
+    #route_index_1{source_key = {Source, Key},
+                   destination = Destination,
+                   args = Args}.
 
 reverse_binding(#reverse_binding{source      = SrcName,
                                  destination = DstName,

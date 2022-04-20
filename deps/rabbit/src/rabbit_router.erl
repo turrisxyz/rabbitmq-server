@@ -6,7 +6,6 @@
 %%
 
 -module(rabbit_router).
--include_lib("stdlib/include/qlc.hrl").
 -include_lib("rabbit_common/include/rabbit.hrl").
 
 -export([match_bindings/2, match_routing_key/2]).
@@ -21,48 +20,46 @@
 %%----------------------------------------------------------------------------
 
 -spec match_bindings(rabbit_types:binding_source(),
-                           fun ((rabbit_types:binding()) -> boolean())) ->
+                     fun ((rabbit_types:binding()) -> boolean())) ->
     match_result().
 
 match_bindings(SrcName, Match) ->
-    MatchHead = #route{binding = #binding{source      = SrcName,
-                                          _           = '_'}},
-    Routes = ets:select(rabbit_route, [{MatchHead, [], [['$_']]}]),
-    [Dest || [#route{binding = Binding = #binding{destination = Dest}}] <-
-        Routes, Match(Binding)].
+    Bindings = ets:lookup(rabbit_route_index_2, SrcName),
+    lists:filtermap(
+      fun(#binding{destination = Destination} = Binding) ->
+              case Match(Binding) of
+                  true -> {true, Destination};
+                  false -> false
+              end
+      end, Bindings).
 
 -spec match_routing_key(rabbit_types:binding_source(),
-                             [routing_key()] | ['_']) ->
+                        [routing_key(), ...] | ['_']) ->
     match_result().
 
-match_routing_key(SrcName, ['_' = RoutingKey]) ->
-    find_routes(#route{binding = #binding{source      = SrcName,
-                                          destination = '$1',
-                                          key         = RoutingKey,
-                                          _           = '_'}},
-                []);
+match_routing_key(SrcName, ['_']) ->
+    %% The '_' wildcard got used in the match specification of ets:select/2
+    %% in a previous version of this function.
+    destinations(SrcName);
 match_routing_key(SrcName, [RoutingKey]) ->
-    ets:lookup_element(rabbit_route_1, {SrcName, RoutingKey}, 3);
+    %% optimization
+    destinations(SrcName, RoutingKey);
 match_routing_key(SrcName, [_|_] = RoutingKeys) ->
-    find_routes(#route{binding = #binding{source      = SrcName,
-                                          destination = '$1',
-                                          key         = '$2',
-                                          _           = '_'}},
-                [list_to_tuple(['orelse' | [{'=:=', '$2', RKey} ||
-                                               RKey <- RoutingKeys]])]).
+    %%TODO filter out duplicate destinations?
+    lists:flatmap(fun(RKey) ->
+                          destinations(SrcName, RKey)
+                  end, RoutingKeys).
 
-%%--------------------------------------------------------------------
+destinations(SrcName) ->
+    lookup_element(rabbit_route_index_2, SrcName, 4).
 
-%% Normally we'd call mnesia:dirty_select/2 here, but that is quite
-%% expensive for the same reasons as above, and, additionally, due to
-%% mnesia 'fixing' the table with ets:safe_fixtable/2, which is wholly
-%% unnecessary. According to the ets docs (and the code in erl_db.c),
-%% 'select' is safe anyway ("Functions that internally traverse over a
-%% table, like select and match, will give the same guarantee as
-%% safe_fixtable.") and, furthermore, even the lower level iterators
-%% ('first' and 'next') are safe on ordered_set tables ("Note that for
-%% tables of the ordered_set type, safe_fixtable/2 is not necessary as
-%% calls to first/1 and next/2 will always succeed."), which
-%% rabbit_route is.
-find_routes(MatchHead, Conditions) ->
-    ets:select(rabbit_route, [{MatchHead, Conditions, ['$1']}]).
+destinations(SrcName, RoutingKey) ->
+    lookup_element(rabbit_route_index_1, {SrcName, RoutingKey}, 3).
+
+lookup_element(Tab, Key, Pos) ->
+    case ets:member(Tab, Key) of
+        true ->
+            ets:lookup_element(Tab, Key, Pos);
+        false ->
+            []
+    end.
