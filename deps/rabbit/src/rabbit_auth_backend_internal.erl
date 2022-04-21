@@ -28,10 +28,10 @@
          hash_password/2, change_password_hash/2, change_password_hash/3,
          set_tags/3, set_permissions/6, clear_permissions/3,
          clear_permissions_in_mnesia/2,
-         clear_permissions_in_khepri/2,
+         clear_permissions_in_khepri/2, clear_permissions_in_khepri_tx_fun/2,
          set_topic_permissions/6, clear_topic_permissions/3, clear_topic_permissions/4,
          clear_topic_permissions_in_mnesia/3,
-         clear_topic_permissions_in_khepri/3,
+         clear_topic_permissions_in_khepri/3, clear_topic_permissions_in_khepri_tx_fun/3,
          add_user_sans_validation/3, put_user/2, put_user/3,
          update_user/5,
          update_user_with_hash/5,
@@ -49,8 +49,10 @@
          list_user_permissions/1, list_user_permissions/3,
          list_topic_permissions/0,
          list_vhost_permissions/1, list_vhost_permissions/3,
+         list_vhost_permissions_in_khepri_tx_fun/1,
          list_user_vhost_permissions/2,
-         list_user_topic_permissions/1, list_vhost_topic_permissions/1, list_user_vhost_topic_permissions/2]).
+         list_user_topic_permissions/1, list_vhost_topic_permissions/1, list_user_vhost_topic_permissions/2,
+         list_vhost_topic_permissions_in_khepri_tx_fun/1]).
 
 -export([state_can_expire/0]).
 -export([clear_data_in_khepri/0,
@@ -803,15 +805,18 @@ clear_permissions_in_khepri(Username, VirtualHost) ->
     %% execution would be much simpler if we just deleted the permission and
     %% be done with it.
     rabbit_khepri:transaction(
-      rabbit_vhost:with_user_and_vhost_in_khepri(
-        Username, VirtualHost,
-        fun () ->
-                Path = khepri_user_permission_path(Username, VirtualHost),
-                case khepri_tx:delete(Path) of
-                    {ok, _} -> ok;
-                    Error   -> khepri_tx:abort(Error)
-                end
-        end)).
+      clear_permissions_in_khepri_tx_fun(Username, VirtualHost)).
+
+clear_permissions_in_khepri_tx_fun(Username, VirtualHost) ->
+    rabbit_vhost:with_user_and_vhost_in_khepri(
+      Username, VirtualHost,
+      fun () ->
+              Path = khepri_user_permission_path(Username, VirtualHost),
+              case khepri_tx:delete(Path) of
+                  {ok, _} -> ok;
+                  Error   -> khepri_tx:abort(Error)
+              end
+      end).
 
 update_user(Username, Fun) ->
     rabbit_khepri:try_mnesia_or_khepri(
@@ -1046,16 +1051,19 @@ clear_topic_permissions_in_khepri(Username, VirtualHost, Exchange) ->
     %% execution would be much simpler if we just deleted the permission and
     %% be done with it.
     rabbit_khepri:transaction(
-      rabbit_vhost:with_user_and_vhost_in_khepri(
-        Username, VirtualHost,
-        fun () ->
-                Path = khepri_topic_permission_path(
-                         Username, VirtualHost, Exchange),
-                case khepri_tx:delete(Path) of
-                    {ok, _} -> ok;
-                    Error   -> khepri_tx:abort(Error)
-                end
-        end)).
+      clear_topic_permissions_in_khepri_tx_fun(Username, VirtualHost, Exchange)).
+
+clear_topic_permissions_in_khepri_tx_fun(Username, VirtualHost, Exchange) ->
+    rabbit_vhost:with_user_and_vhost_in_khepri(
+      Username, VirtualHost,
+      fun () ->
+              Path = khepri_topic_permission_path(
+                       Username, VirtualHost, Exchange),
+              case khepri_tx:delete(Path) of
+                  {ok, _} -> ok;
+                  Error   -> khepri_tx:abort(Error)
+              end
+      end).
 
 put_user(User, ActingUser) -> put_user(User, undefined, ActingUser).
 
@@ -1373,6 +1381,18 @@ list_vhost_permissions(VHostPath) ->
                       khepri_user_permission_path(?STAR, VHostPath))),
     list_permissions(vhost_perms_info_keys(), MnesiaThunk, KhepriThunk).
 
+list_vhost_permissions_in_khepri_tx_fun(VHostPath) ->
+    fun() ->
+            Fun = rabbit_vhost:with_in_khepri(
+                    VHostPath,
+                    match_path_in_khepri(
+                      khepri_user_permission_path(?STAR, VHostPath))),
+            case Fun() of
+                {ok, UserPermissions} -> maps:values(UserPermissions);
+                _                     -> []
+            end
+    end.
+
 -spec list_vhost_permissions
         (rabbit_types:vhost(), reference(), pid()) -> 'ok'.
 
@@ -1455,6 +1475,18 @@ list_vhost_topic_permissions(VHost) ->
                       khepri_topic_permission_path(?STAR, VHost, ?STAR))),
     list_topic_permissions(
       vhost_topic_perms_info_keys(), MnesiaThunk, KhepriThunk).
+
+list_vhost_topic_permissions_in_khepri_tx_fun(VHost) ->
+    fun() ->
+            Fun = rabbit_vhost:with_in_khepri(
+                    VHost,
+                    match_path_in_khepri(
+                      khepri_topic_permission_path(?STAR, VHost, ?STAR))),
+            case Fun() of
+                {ok, TopicPermissions} -> maps:values(TopicPermissions);
+                _                      -> []
+            end
+    end.
 
 list_user_vhost_topic_permissions(Username, VHost) ->
     MnesiaThunk = rabbit_vhost:with_user_and_vhost_in_mnesia(

@@ -330,11 +330,14 @@ delete(VHost, ActingUser) ->
               rabbit_misc:execute_mnesia_transaction(
                 with_in_mnesia(
                   VHost,
-                  fun() -> clear_permissions_in_mnesia(VHost, ActingUser) end)
+                  fun() -> clear_permissions_in_mnesia(VHost, ActingUser) end))
       end,
-      with_in_khepri(
-        VHost,
-        fun() -> clear_permissions_in_khepri(VHost, ActingUser) end)),
+      fun() ->
+              rabbit_khepri:transaction(
+                with_in_khepri(
+                  VHost,
+                  fun() -> clear_permissions_in_khepri(VHost, ActingUser) end))
+      end),
     QDelFun = fun (Q) -> rabbit_amqqueue:delete(Q, false, false, ActingUser) end,
     [begin
          Name = amqqueue:get_name(Q),
@@ -820,15 +823,15 @@ clear_permissions_in_mnesia(VHost, ActingUser) ->
         proplists:get_value(user, TopicPermission), VHost, ActingUser)
      || TopicPermission <- TopicPermissions].
 
-clear_permissions_in_khepri(VHost, ActingUser) ->
-    [ok = rabbit_auth_backend_internal:clear_permissions_in_khepri(
-            proplists:get_value(user, Info), VHost, ActingUser)
+clear_permissions_in_khepri(VHost, _ActingUser) ->
+    [ok = rabbit_auth_backend_internal:clear_permissions_in_khepri_tx_fun(
+            proplists:get_value(user, Info), VHost)
      || Info <-
-        rabbit_auth_backend_internal:list_vhost_permissions(VHost)],
+        rabbit_auth_backend_internal:list_vhost_permissions_in_khepri_tx_fun(VHost)],
     TopicPermissions =
-    rabbit_auth_backend_internal:list_vhost_topic_permissions(VHost),
-    [ok = rabbit_auth_backend_internal:clear_topic_permissions_in_khepri(
-        proplists:get_value(user, TopicPermission), VHost, ActingUser)
+    rabbit_auth_backend_internal:list_vhost_topic_permissions_in_khepri_tx_fun(VHost),
+    [ok = rabbit_auth_backend_internal:clear_topic_permissions_in_khepri_tx_fun(
+        proplists:get_value(user, TopicPermission), VHost, ?STAR)
      || TopicPermission <- TopicPermissions].
 
 clear_data_in_khepri() ->
