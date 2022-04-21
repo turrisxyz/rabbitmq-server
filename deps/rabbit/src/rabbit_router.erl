@@ -56,10 +56,14 @@ destinations(SrcName) ->
 destinations(SrcName, RoutingKey) ->
     lookup_element(rabbit_route_index_1, {SrcName, RoutingKey}, 3).
 
+%% Prefer try-catch block over checking Key existence with ets:member/2.
+%% The latter reduces throughput by a few thousand messages per second because
+%% the function db_member_hash of file erl_db_hash.c will consume CPU cycles.
+%% We optimise for the happy path, that is binding (table Key) is present.
 lookup_element(Tab, Key, Pos) ->
-    case ets:member(Tab, Key) of
-        true ->
-            ets:lookup_element(Tab, Key, Pos);
-        false ->
+    try
+        ets:lookup_element(Tab, Key, Pos)
+    catch
+        error:badarg ->
             []
     end.
