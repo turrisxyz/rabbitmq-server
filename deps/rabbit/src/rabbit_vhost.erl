@@ -333,10 +333,7 @@ delete(VHost, ActingUser) ->
                   fun() -> clear_permissions_in_mnesia(VHost, ActingUser) end))
       end,
       fun() ->
-              rabbit_khepri:transaction(
-                with_in_khepri(
-                  VHost,
-                  fun() -> clear_permissions_in_khepri(VHost, ActingUser) end))
+              ok = clear_permissions_in_khepri(VHost, ActingUser)
       end),
     QDelFun = fun (Q) -> rabbit_amqqueue:delete(Q, false, false, ActingUser) end,
     [begin
@@ -345,16 +342,13 @@ delete(VHost, ActingUser) ->
      end || Q <- rabbit_amqqueue:list(VHost)],
     [assert_benign(rabbit_exchange:delete(Name, false, ActingUser), ActingUser) ||
         #exchange{name = Name} <- rabbit_exchange:list(VHost)],
+    With = with(VHost, fun () -> internal_delete(VHost, ActingUser) end),
     Funs = rabbit_khepri:try_mnesia_or_khepri(
-             fun() ->
-                     rabbit_misc:execute_mnesia_transaction(
-                       with_in_mnesia(
-                         VHost,
-                         fun() -> internal_delete(VHost, ActingUser) end))
-             end,
-             with_in_khepri(
-               VHost,
-               fun() -> internal_delete(VHost, ActingUser) end)),
+             fun() -> rabbit_misc:execute_mnesia_transaction(With) end,
+             %% FIXME: Do we need the atomicity? Currently we can't use a
+             %% transaction because of the many side effects here and there in
+             %% other modules.
+             fun() -> internal_delete(VHost, ActingUser) end),
     ok = rabbit_event:notify(vhost_deleted, [{name, VHost},
                                              {user_who_performed_action, ActingUser}]),
     [case Fun() of
@@ -501,8 +495,15 @@ internal_delete_in_mnesia(VHost) ->
 
 internal_delete_in_khepri(VHost) ->
     Path = khepri_vhost_path(VHost),
-    {ok, _} = rabbit_khepri:delete(Path),
-    ok.
+    {ok, Result} = rabbit_khepri:delete(Path),
+    %% We reproduce the behavior of `with(...)' here without using it directly
+    %% (because it expects to run inside a transaction).
+    %%
+    %% So if the vhost didn't exist before deletion, we throw an exception.
+    case Result =:= #{} of
+        false -> ok;
+        true  -> throw({error, {no_such_vhost, VHost}})
+    end.
 
 -spec exists(vhost:name()) -> boolean().
 
@@ -813,26 +814,21 @@ info_all(Items, Ref, AggregatorPid) ->
        AggregatorPid, Ref, fun(VHost) -> info(VHost, Items) end, all()).
 
 clear_permissions_in_mnesia(VHost, ActingUser) ->
-    [ok = rabbit_auth_backend_internal:clear_permissions_in_mnesia(
+    [ok = rabbit_auth_backend_internal:clear_permissions(
             proplists:get_value(user, Info), VHost, ActingUser)
      || Info <-
         rabbit_auth_backend_internal:list_vhost_permissions(VHost)],
     TopicPermissions =
     rabbit_auth_backend_internal:list_vhost_topic_permissions(VHost),
-    [ok = rabbit_auth_backend_internal:clear_topic_permissions_in_mnesia(
+    [ok = rabbit_auth_backend_internal:clear_topic_permissions(
         proplists:get_value(user, TopicPermission), VHost, ActingUser)
      || TopicPermission <- TopicPermissions].
 
-clear_permissions_in_khepri(VHost, _ActingUser) ->
-    [ok = rabbit_auth_backend_internal:clear_permissions_in_khepri_tx_fun(
-            proplists:get_value(user, Info), VHost)
-     || Info <-
-        rabbit_auth_backend_internal:list_vhost_permissions_in_khepri_tx_fun(VHost)],
-    TopicPermissions =
-    rabbit_auth_backend_internal:list_vhost_topic_permissions_in_khepri_tx_fun(VHost),
-    [ok = rabbit_auth_backend_internal:clear_topic_permissions_in_khepri_tx_fun(
-        proplists:get_value(user, TopicPermission), VHost, ?STAR)
-     || TopicPermission <- TopicPermissions].
+clear_permissions_in_khepri(VHost, ActingUser) ->
+    ok = rabbit_auth_backend_internal:clear_vhost_permissions_in_khepri(
+           VHost, ActingUser),
+    ok = rabbit_auth_backend_internal:clear_vhost_topic_permissions_in_khepri(
+           VHost, ActingUser).
 
 clear_data_in_khepri() ->
     Path = khepri_vhosts_path(),

@@ -700,38 +700,9 @@ delete_non_existing_vhost(_) ->
      ?with(?assertEqual(
               {error, {no_such_vhost, VHostName}},
               lookup_vhost(_With, VHostName))),
-     ?with(case _With of
-               %% There is a difference of behavior in this case. In the case
-               %% of Mnesia, rabbit_vhost takes care of deleting user/topic
-               %% permissions associated with the about-to-be-removed vhost.
-               %% This will throw an exception if the vhost doesn't exist
-               %% because rabbit_auth_backend_internal uses
-               %% rabbit_vhost:with() to verify the vhost exists again.
-               %%
-               %% In the case of Khepri, that association is handled by a
-               %% keep_while condition. Therefore the existence of the vhost
-               %% is not checked.
-               %%
-               %% In practice, that's ok: rabbit_vhost:internal_delete() is
-               %% only used in rabbit_vhost:delete() and the latter already
-               %% verifies the existence of the vhost.
-               %%
-               %% We could even consider it's a bug in the case of Mnesia:
-               %% rabbit_vhost:internal_delete() should probably not fail if
-               %% the vhost doesn't exist.
-               mnesia ->
-                   %% The inner throw is emitted by
-                   %% rabbit_auth_backend_internal:list_vhost_permissions().
-                   %% This exception is thrown again in the delete_vhost()
-                   %% helper in this testsuite.
-                   ?assertThrow(
-                      {error, {throw, {error, {no_such_vhost, VHostName}}}},
-                      delete_vhost(_With, VHostName));
-               khepri ->
-                   ?assertEqual(
-                      ok,
-                      delete_vhost(_With, VHostName))
-           end),
+     ?with(?assertThrow(
+              {error, {no_such_vhost, VHostName}},
+              delete_vhost(_With, VHostName))),
      ?with(?assertEqual(
               {error, {no_such_vhost, VHostName}},
               lookup_vhost(_With, VHostName))),
@@ -2705,20 +2676,17 @@ vhost_info(khepri, VHostName) ->
 delete_vhost(mnesia, VHostName) ->
     rabbit_misc:execute_mnesia_transaction(
       fun() ->
-              rabbit_vhost:with_in_mnesia(
-                  VHostName,
-                  fun() ->
-                          rabbit_vhost:clear_permissions_in_mnesia(
-                            VHostName, ActingUser)
-                  end),
+              Fun = rabbit_vhost:with_in_mnesia(
+                      VHostName,
+                      fun() ->
+                              rabbit_vhost:clear_permissions_in_mnesia(
+                                VHostName, undefined)
+                      end),
+              Fun(),
               rabbit_vhost:internal_delete_in_mnesia(VHostName)
       end);
 delete_vhost(khepri, VHostName) ->
-    rabbit_vhost:with_in_khepri(
-      VHostName,
-      fun() ->
-              rabbit_vhost:clear_permissions_in_khepri(VHostName, ActingUser)
-      end),
+    rabbit_vhost:clear_permissions_in_khepri(VHostName, undefined),
     rabbit_vhost:internal_delete_in_khepri(VHostName).
 
 add_user(mnesia, Username, User) ->

@@ -27,9 +27,11 @@
          change_password/3, clear_password/2,
          hash_password/2, change_password_hash/2, change_password_hash/3,
          set_tags/3, set_permissions/6, clear_permissions/3,
+         clear_vhost_permissions_in_khepri/2,
          clear_permissions_in_mnesia/2,
-         clear_permissions_in_khepri/2, clear_permissions_in_khepri_tx_fun/2,
+         clear_permissions_in_khepri/2,
          set_topic_permissions/6, clear_topic_permissions/3, clear_topic_permissions/4,
+         clear_vhost_topic_permissions_in_khepri/2,
          clear_topic_permissions_in_mnesia/3,
          clear_topic_permissions_in_khepri/3, clear_topic_permissions_in_khepri_tx_fun/3,
          add_user_sans_validation/3, put_user/2, put_user/3,
@@ -766,11 +768,7 @@ clear_permissions(Username, VirtualHost, ActingUser) ->
         R = rabbit_khepri:try_mnesia_or_khepri(
               fun() -> clear_permissions_in_mnesia(Username, VirtualHost) end,
               fun() -> clear_permissions_in_khepri(Username, VirtualHost) end),
-        rabbit_log:info("Successfully cleared permissions for '~s' in virtual host '~s'",
-                        [Username, VirtualHost]),
-        rabbit_event:notify(permission_deleted, [{user,  Username},
-                                                 {vhost, VirtualHost},
-                                                 {user_who_performed_action, ActingUser}]),
+        post_clear_permissions(Username, VirtualHost, ActingUser),
         R
     catch
         throw:{error, {no_such_vhost, _}} = Error ->
@@ -786,6 +784,31 @@ clear_permissions(Username, VirtualHost, ActingUser) ->
                                [Username, VirtualHost, Error]),
             erlang:raise(Class, Error, Stacktrace)
     end.
+
+clear_vhost_permissions_in_khepri(VirtualHost, ActingUser) ->
+    rabbit_log:debug("Asked to clear permissions for everyone in virtual host '~s'",
+                     [VirtualHost]),
+    Path = khepri_user_permission_path(?STAR, VirtualHost),
+    case rabbit_khepri:delete(Path) of
+        {ok, Result} ->
+            _ = maps:fold(
+                  fun(Path1, _NodeProps, Acc) ->
+                          Username = khepri_path_to_user(Path1),
+                          post_clear_permissions(
+                            Username, VirtualHost, ActingUser),
+                          Acc
+                  end, ok, Result),
+            ok;
+        Error ->
+            Error
+    end.
+
+post_clear_permissions(Username, VirtualHost, ActingUser) ->
+    rabbit_log:info("Successfully cleared permissions for '~s' in virtual host '~s'",
+                    [Username, VirtualHost]),
+    rabbit_event:notify(permission_deleted, [{user,  Username},
+                                             {vhost, VirtualHost},
+                                             {user_who_performed_action, ActingUser}]).
 
 clear_permissions_in_mnesia(Username, VirtualHost) ->
     rabbit_misc:execute_mnesia_transaction(
@@ -805,18 +828,15 @@ clear_permissions_in_khepri(Username, VirtualHost) ->
     %% execution would be much simpler if we just deleted the permission and
     %% be done with it.
     rabbit_khepri:transaction(
-      clear_permissions_in_khepri_tx_fun(Username, VirtualHost)).
-
-clear_permissions_in_khepri_tx_fun(Username, VirtualHost) ->
-    rabbit_vhost:with_user_and_vhost_in_khepri(
-      Username, VirtualHost,
-      fun () ->
-              Path = khepri_user_permission_path(Username, VirtualHost),
-              case khepri_tx:delete(Path) of
-                  {ok, _} -> ok;
-                  Error   -> khepri_tx:abort(Error)
-              end
-      end).
+      rabbit_vhost:with_user_and_vhost_in_khepri(
+        Username, VirtualHost,
+        fun () ->
+                Path = khepri_user_permission_path(Username, VirtualHost),
+                case khepri_tx:delete(Path) of
+                    {ok, _} -> ok;
+                    Error   -> khepri_tx:abort(Error)
+                end
+        end)).
 
 update_user(Username, Fun) ->
     rabbit_khepri:try_mnesia_or_khepri(
@@ -958,11 +978,7 @@ clear_topic_permissions(Username, VirtualHost, ActingUser) ->
                       clear_topic_permissions_in_khepri(
                         Username, VirtualHost)
               end),
-        rabbit_log:info("Successfully cleared topic permissions for '~s' in virtual host '~s'",
-                        [Username, VirtualHost]),
-        rabbit_event:notify(topic_permission_deleted, [{user,  Username},
-            {vhost, VirtualHost},
-            {user_who_performed_action, ActingUser}]),
+        post_clear_topic_permissions(Username, VirtualHost, ActingUser),
         R
     catch
         throw:{error, {no_such_vhost, _}} = Error ->
@@ -978,6 +994,31 @@ clear_topic_permissions(Username, VirtualHost, ActingUser) ->
                                [Username, VirtualHost, Error]),
             erlang:raise(Class, Error, Stacktrace)
     end.
+
+clear_vhost_topic_permissions_in_khepri(VirtualHost, ActingUser) ->
+    rabbit_log:debug("Asked to clear topic permissions for everyone in virtual host '~s'",
+                     [VirtualHost]),
+    Path = khepri_topic_permission_path(?STAR, VirtualHost, ?STAR),
+    case rabbit_khepri:delete(Path) of
+        {ok, Result} ->
+            _ = maps:fold(
+                  fun(Path1, _NodeProps, Acc) ->
+                          Username = khepri_path_to_user(Path1),
+                          post_clear_topic_permissions(
+                            Username, VirtualHost, ActingUser),
+                          Acc
+                  end, ok, Result),
+            ok;
+        Error ->
+            Error
+    end.
+
+post_clear_topic_permissions(Username, VirtualHost, ActingUser) ->
+    rabbit_log:info("Successfully cleared topic permissions for '~s' in virtual host '~s'",
+                    [Username, VirtualHost]),
+    rabbit_event:notify(topic_permission_deleted, [{user,  Username},
+                                                   {vhost, VirtualHost},
+                                                   {user_who_performed_action, ActingUser}]).
 
 clear_topic_permissions_in_mnesia(Username, VirtualHost) ->
     rabbit_misc:execute_mnesia_transaction(
@@ -1381,15 +1422,16 @@ list_vhost_permissions(VHostPath) ->
     list_permissions(vhost_perms_info_keys(), MnesiaThunk, KhepriThunk).
 
 list_vhost_permissions_in_khepri_tx_fun(VHostPath) ->
-    fun() ->
-            Fun = rabbit_vhost:with_in_khepri(
-                    VHostPath,
-                    match_path_in_khepri(
-                      khepri_user_permission_path(?STAR, VHostPath))),
-            case Fun() of
-                {ok, UserPermissions} -> maps:values(UserPermissions);
-                _                     -> []
-            end
+    Fun = rabbit_vhost:with_in_khepri(
+            VHostPath,
+            match_path_in_khepri(
+              khepri_user_permission_path(?STAR, VHostPath))),
+    case Fun() of
+        {ok, UserPermissions} ->
+            [extract_user_permission_params(vhost_perms_info_keys(), U)
+             || U <- maps:values(UserPermissions)];
+        _ ->
+            []
     end.
 
 -spec list_vhost_permissions
@@ -1476,15 +1518,16 @@ list_vhost_topic_permissions(VHost) ->
       vhost_topic_perms_info_keys(), MnesiaThunk, KhepriThunk).
 
 list_vhost_topic_permissions_in_khepri_tx_fun(VHost) ->
-    fun() ->
-            Fun = rabbit_vhost:with_in_khepri(
-                    VHost,
-                    match_path_in_khepri(
-                      khepri_topic_permission_path(?STAR, VHost, ?STAR))),
-            case Fun() of
-                {ok, TopicPermissions} -> maps:values(TopicPermissions);
-                _                      -> []
-            end
+    Fun = rabbit_vhost:with_in_khepri(
+            VHost,
+            match_path_in_khepri(
+              khepri_topic_permission_path(?STAR, VHost, ?STAR))),
+    case Fun() of
+        {ok, TopicPermissions} ->
+            [extract_topic_permission_params(vhost_topic_perms_info_keys(), U)
+             || U <- maps:values(TopicPermissions)];
+        _ ->
+            []
     end.
 
 list_user_vhost_topic_permissions(Username, VHost) ->
@@ -1712,3 +1755,5 @@ khepri_user_permission_path(Username, VHostName) ->
 
 khepri_topic_permission_path(Username, VHostName, Exchange) ->
     [?MODULE, users, Username, topic_permissions, VHostName, Exchange].
+
+khepri_path_to_user([?MODULE, users, Username | _]) -> Username.
