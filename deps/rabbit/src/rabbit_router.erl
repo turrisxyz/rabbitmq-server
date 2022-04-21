@@ -45,7 +45,11 @@ match_routing_key(SrcName, [RoutingKey]) ->
     %% optimization
     destinations(SrcName, RoutingKey);
 match_routing_key(SrcName, [_|_] = RoutingKeys) ->
-    %%TODO filter out duplicate destinations?
+    %%TODO
+    %% Q1: filter out duplicate destinations?
+    %% A1: Seems to happen two levels up in
+    %% https://github.com/rabbitmq/rabbitmq-server/blob/08ec75e208880890222571a3d700404d31c11632/deps/rabbit/src/rabbit_exchange.erl#L420
+    %% Q2: What about other exchanges calling rabbit_router directly? Compare result sets from previous ets:select call
     lists:flatmap(fun(RKey) ->
                           destinations(SrcName, RKey)
                   end, RoutingKeys).
@@ -58,8 +62,8 @@ destinations(SrcName, RoutingKey) ->
 
 %% Prefer try-catch block over checking Key existence with ets:member/2.
 %% The latter reduces throughput by a few thousand messages per second because
-%% the function db_member_hash of file erl_db_hash.c will consume CPU cycles.
-%% We optimise for the happy path, that is binding (table Key) is present.
+%% of function db_member_hash in file erl_db_hash.c.
+%% We optimise for the happy path, that is the binding (table Key) is present.
 lookup_element(Tab, Key, Pos) ->
     try
         ets:lookup_element(Tab, Key, Pos)
