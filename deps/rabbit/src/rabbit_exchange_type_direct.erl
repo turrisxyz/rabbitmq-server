@@ -33,7 +33,7 @@ serialise_events() -> false.
 
 route(#exchange{name = Name},
       #delivery{message = #basic_message{routing_keys = Routes}}) ->
-    rabbit_router:match_routing_key(Name, Routes).
+    rabbit_router:route(Name, Routes).
 
 validate(_X) -> ok.
 validate_binding(_X, _B) -> ok.

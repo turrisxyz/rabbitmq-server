@@ -93,7 +93,7 @@
 %% mnesia doesn't like unary records, so we add a dummy 'value' field
 -record(route, {binding, value = const}).
 -record(reverse_route, {reverse_binding, value = const}).
--record(route_index_1, {source_key, destination, args = []}).
+-record(index_route, {source_key, destination, args = []}).
 
 -record(binding, {source, key, destination, args = []}).
 -record(reverse_binding, {destination, key, source, args = []}).
